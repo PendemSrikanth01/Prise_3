@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { ChevronRight, Search } from 'lucide-react';
 import { OnboardingItemType, OnboardingStatus, Prisma, StartupStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { accessibleStartupWhere, requireSession } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,8 +27,10 @@ function statusLabel(status: StartupStatus) {
 
 export default async function StartupsPage({ searchParams }: { searchParams: SearchParams }) {
   const { q = '', filter = 'all' } = await searchParams;
+  const session = await requireSession();
   const search = q.trim();
-  const where: Prisma.StartupWhereInput = {};
+  const scope = accessibleStartupWhere(session.user);
+  const where: Prisma.StartupWhereInput = { ...scope };
 
   if (search) {
     where.OR = [
@@ -66,11 +69,12 @@ export default async function StartupsPage({ searchParams }: { searchParams: Sea
       },
     }),
     Promise.all([
-      prisma.startup.count(),
-      prisma.startup.count({ where: { status: StartupStatus.ACTIVE } }),
-      prisma.startup.count({ where: { status: { in: [StartupStatus.DISCONTINUED, StartupStatus.WITHDRAWN] } } }),
+      prisma.startup.count({ where: scope }),
+      prisma.startup.count({ where: { ...scope, status: StartupStatus.ACTIVE } }),
+      prisma.startup.count({ where: { ...scope, status: { in: [StartupStatus.DISCONTINUED, StartupStatus.WITHDRAWN] } } }),
       prisma.startup.count({
         where: {
+          ...scope,
           status: StartupStatus.ACTIVE,
           onboardingItems: { some: { type: { in: [...CORE_TYPES] }, status: OnboardingStatus.PENDING } },
         },

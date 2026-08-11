@@ -1,15 +1,18 @@
 import { MilestoneScope, StartupStatus } from '@prisma/client';
 import { PageIntro } from '@/components/ui/PageIntro';
 import { prisma } from '@/lib/prisma';
+import { accessibleStartupWhere, requireSession } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ProgramPage() {
+  const session = await requireSession();
+  const scope = accessibleStartupWhere(session.user);
   const [active, inactive, programMilestones, fees] = await Promise.all([
-    prisma.startup.count({ where: { status: StartupStatus.ACTIVE } }),
-    prisma.startup.count({ where: { status: { in: [StartupStatus.DISCONTINUED, StartupStatus.WITHDRAWN] } } }),
+    prisma.startup.count({ where: { ...scope, status: StartupStatus.ACTIVE } }),
+    prisma.startup.count({ where: { ...scope, status: { in: [StartupStatus.DISCONTINUED, StartupStatus.WITHDRAWN] } } }),
     prisma.milestoneTemplate.count({ where: { scope: MilestoneScope.PROGRAM } }),
-    prisma.startup.aggregate({ _sum: { agreedFee: true, totalFeePaid: true } }),
+    prisma.startup.aggregate({ where: scope, _sum: { agreedFee: true, totalFeePaid: true } }),
   ]);
   const cards = [
     ['Active startups', active],

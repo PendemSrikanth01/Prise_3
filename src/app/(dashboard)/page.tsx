@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dashboard-widgets';
 import { CohortChartCard, type WeeklyProgress } from '@/components/ui/CohortChartCard';
 import { prisma } from '@/lib/prisma';
+import { accessibleStartupWhere, requireSession } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,12 +28,15 @@ const ITEM_LABEL: Record<(typeof CORE_ONBOARDING)[number], string> = {
 };
 
 export default async function HomePage() {
+  const session = await requireSession();
+  const scope = accessibleStartupWhere(session.user);
   const [activeCount, selectedCount, attentionStartups, pendingCoreItems, templateCount, completionGroups] =
     await Promise.all([
-      prisma.startup.count({ where: { status: StartupStatus.ACTIVE } }),
-      prisma.startup.count(),
+      prisma.startup.count({ where: { ...scope, status: StartupStatus.ACTIVE } }),
+      prisma.startup.count({ where: scope }),
       prisma.startup.findMany({
         where: {
+          ...scope,
           status: StartupStatus.ACTIVE,
           onboardingItems: {
             some: { type: { in: [...CORE_ONBOARDING] }, status: OnboardingStatus.PENDING },
@@ -50,7 +54,7 @@ export default async function HomePage() {
       }),
       prisma.onboardingItem.count({
         where: {
-          startup: { status: StartupStatus.ACTIVE },
+          startup: { ...scope, status: StartupStatus.ACTIVE },
           type: { in: [...CORE_ONBOARDING] },
           status: OnboardingStatus.PENDING,
         },
@@ -58,7 +62,7 @@ export default async function HomePage() {
       prisma.milestoneTemplate.count({ where: { isActive: true } }),
       prisma.onboardingItem.findMany({
         where: {
-          startup: { status: StartupStatus.ACTIVE },
+          startup: { ...scope, status: StartupStatus.ACTIVE },
           type: { in: [...CORE_ONBOARDING] },
           status: { in: [OnboardingStatus.SUBMITTED, OnboardingStatus.APPROVED] },
         },
@@ -93,7 +97,7 @@ export default async function HomePage() {
   return (
     <div className="mx-auto w-full max-w-[1500px] p-4 sm:p-6 lg:p-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-[-0.025em] text-prise-text sm:text-[28px]">Good morning, Program Team</h1>
+        <h1 className="text-2xl font-bold tracking-[-0.025em] text-prise-text sm:text-[28px]">Good morning, {session.user.name.split(' ')[0]}</h1>
         <p className="mt-1.5 text-sm text-prise-text-secondary">Here is what needs attention across PRISE 3.0 today.</p>
       </div>
 

@@ -2,7 +2,7 @@
 
 import { Bell, Menu, Search } from 'lucide-react';
 
-export function TopBar({ onMenu }: { onMenu: () => void }) {
+export function TopBar({ onMenu, userName }: { onMenu: () => void; userName: string }) {
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-prise-border bg-white/88 px-4 backdrop-blur-xl sm:px-6">
       <div className="flex items-center gap-3">
@@ -30,6 +30,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
       </form>
 
       <div className="flex items-center gap-2">
+        <div className="hidden text-right sm:block"><div className="text-xs font-semibold text-prise-text">{userName}</div><div className="text-[11px] text-prise-text-muted">Secure session</div></div>
         <div className="relative rounded-full p-2 text-prise-text-secondary" aria-label="No new notifications">
           <Bell size={18} />
         </div>

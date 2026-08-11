@@ -1,0 +1,12 @@
+[Unit]
+Description=Verified PRISE 3.0 PostgreSQL backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Environment=PRISE_PROJECT_DIR=/opt/prise3
+Environment=PRISE_BACKUP_DIR=/var/backups/prise3
+ExecStart=/opt/prise3/deploy/backup.sh
+

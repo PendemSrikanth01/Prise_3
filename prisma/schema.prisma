@@ -138,14 +138,17 @@ enum PaymentStatus {
 // ---------------------------------------------------------------------------
 
 model Person {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  phone        String?
-  role         Role
-  passwordHash String // Auth.js credentials provider — bcrypt hash
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                 String    @id @default(cuid())
+  name               String
+  email              String    @unique
+  phone              String?
+  role               Role
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(true)
+  lastLoginAt        DateTime?
+  passwordHash       String // Auth.js credentials provider — bcrypt hash
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   // Founder-only: the single startup this person represents
   founderOfStartupId String?  @unique
@@ -159,8 +162,39 @@ model Person {
   requestedSupport     SupportRequest[]    @relation("SupportRequester")
   assignedSupport      SupportRequest[]    @relation("SupportAssignee")
   activityLogs         ActivityLog[]
+  authSessions         AuthSession[]
+  onboardingReviews    OnboardingItem[]    @relation("OnboardingReviewer")
 
   @@index([role])
+  @@index([isActive])
+}
+
+model AuthSession {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique
+  personId   String
+  expiresAt  DateTime
+  lastSeenAt DateTime  @default(now())
+  revokedAt  DateTime?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId, revokedAt])
+  @@index([expiresAt])
+}
+
+model LoginAttempt {
+  id         String   @id @default(cuid())
+  emailHash  String
+  ipHash     String
+  successful Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([emailHash, ipHash, createdAt])
+  @@index([ipHash, createdAt])
+  @@index([createdAt])
 }
 
 // Many-to-many: a mentor/intern/expert can support multiple startups,
@@ -215,6 +249,7 @@ model Startup {
   supportRequests     SupportRequest[]
   sessions            Session[]
   paymentInstallments PaymentInstallment[]
+  activityLogs        ActivityLog[]        @relation("StartupActivity")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -227,21 +262,24 @@ model Startup {
 // ---------------------------------------------------------------------------
 
 model OnboardingItem {
-  id          String             @id @default(cuid())
-  startupId   String
-  type        OnboardingItemType
-  status      OnboardingStatus   @default(PENDING)
-  submittedAt DateTime?
-  approvedAt  DateTime?
-  remarks     String?
+  id           String             @id @default(cuid())
+  startupId    String
+  type         OnboardingItemType
+  status       OnboardingStatus   @default(PENDING)
+  submittedAt  DateTime?
+  approvedAt   DateTime?
+  reviewedById String?
+  remarks      String?
 
-  startup Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  startup    Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  reviewedBy Person? @relation("OnboardingReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([startupId, type])
   @@index([status])
+  @@index([reviewedById])
 }
 
 // ---------------------------------------------------------------------------
@@ -295,8 +333,11 @@ model Milestone {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([startupId, templateId])
   @@index([startupId, status])
   @@index([phase])
+  @@index([templateId])
+  @@index([reviewerId])
 }
 
 // ---------------------------------------------------------------------------
@@ -326,6 +367,7 @@ model Task {
 
   @@index([assigneeId, status])
   @@index([startupId])
+  @@index([milestoneId])
 }
 
 model Deliverable {
@@ -343,6 +385,7 @@ model Deliverable {
   uploader  Person?   @relation("DeliverableUploader", fields: [uploaderId], references: [id])
 
   @@index([milestoneId, createdAt])
+  @@index([uploaderId])
 }
 
 model MilestoneReview {
@@ -357,6 +400,7 @@ model MilestoneReview {
   reviewer  Person    @relation("MilestoneReviewAuthor", fields: [reviewerId], references: [id])
 
   @@index([milestoneId, createdAt])
+  @@index([reviewerId])
 }
 
 model SupportRequest {
@@ -433,12 +477,18 @@ model ActivityLog {
   entityType String // "Startup" | "OnboardingItem" | "Milestone" | "Task"
   entityId   String
   actorId    String?
+  actorRole  Role?
+  startupId  String?
   action     String // e.g. "status_changed", "created", "approved"
+  summary    String
   meta       Json? // { from, to, field } — free-form, keeps this table generic
   createdAt  DateTime @default(now())
 
-  actor Person? @relation(fields: [actorId], references: [id])
+  actor   Person?  @relation(fields: [actorId], references: [id])
+  startup Startup? @relation("StartupActivity", fields: [startupId], references: [id], onDelete: SetNull)
 
   @@index([entityType, entityId])
+  @@index([startupId, createdAt])
+  @@index([actorId, createdAt])
   @@index([createdAt])
 }

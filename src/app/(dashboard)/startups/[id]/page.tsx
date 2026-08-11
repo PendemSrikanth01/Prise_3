@@ -1,108 +1,90 @@
 import Link from 'next/link';
-import { ArrowLeft, Check, Circle, IndianRupee, MapPin, Target } from 'lucide-react';
-import { OnboardingStatus } from '@prisma/client';
 import { notFound } from 'next/navigation';
+import {
+  Check, Circle, IndianRupee, MapPin, Pencil, Plus, ShieldCheck,
+} from 'lucide-react';
+import {
+  OnboardingStatus as PrismaOnboardingStatus, PaymentStatus, Priority, ReviewDecision, SupportRequestStatus, TaskStatus,
+} from '@prisma/client';
+import {
+  createPaymentAction, createSupportAction, createTaskAction, deletePaymentAction, deleteSupportAction,
+  deleteTaskAction, reviewMilestoneAction, reviewOnboardingAction, updatePaymentAction,
+  updateSupportAction, updateTaskAction,
+} from '@/app/actions/workflows';
+import { ConfirmButton, SubmitButton } from '@/components/ui/FormButtons';
+import { accessibleStartupWhere, hasPermission, requireSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-const ITEM_LABEL: Record<string, string> = {
-  AGREEMENT: 'Agreement',
-  BASELINE: 'Baseline assessment',
-  PITCH_VIDEO: '2-minute pitch video',
-  LOGO: 'Logo',
-  FEE_PAYMENT: 'Fee payment',
-  DOCUMENT_FOLDER: 'Document folder',
-};
+const ITEM_LABEL: Record<string, string> = { AGREEMENT: 'Agreement', BASELINE: 'Baseline assessment', PITCH_VIDEO: '2-minute pitch video', LOGO: 'Logo', FEE_PAYMENT: 'Fee payment', DOCUMENT_FOLDER: 'Document folder' };
+const OnboardingStatus: Record<keyof typeof PrismaOnboardingStatus, PrismaOnboardingStatus> = PrismaOnboardingStatus;
+const dateInput = (date: Date | null | undefined) => date ? date.toISOString().slice(0, 10) : '';
+const label = (value: string) => value.replaceAll('_', ' ').toLowerCase();
+const inputClass = 'h-10 w-full rounded-input border bg-white px-3 text-sm outline-none focus:border-prise-primary';
 
 export default async function StartupDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const session = await requireSession();
   const { id } = await params;
-  const startup = await prisma.startup.findUnique({
-    where: { id },
+  const startup = await prisma.startup.findFirst({
+    where: { id, ...accessibleStartupWhere(session.user) },
     include: {
       onboardingItems: { orderBy: { type: 'asc' } },
-      milestones: { orderBy: [{ phase: 'asc' }, { dueDate: 'asc' }] },
+      milestones: { orderBy: [{ phase: 'asc' }, { dueDate: 'asc' }], include: { reviews: { orderBy: { createdAt: 'desc' }, take: 1, include: { reviewer: { select: { name: true } } } } } },
+      tasks: { orderBy: [{ status: 'asc' }, { dueDate: 'asc' }] },
+      supportRequests: { orderBy: { createdAt: 'desc' } },
+      paymentInstallments: { orderBy: { dueDate: 'desc' } },
     },
   });
   if (!startup) notFound();
-
+  const people = await prisma.person.findMany({ where: { isActive: true }, orderBy: { name: 'asc' }, select: { id: true, name: true, role: true } });
+  const canEdit = hasPermission(session.user.role, 'startup:update');
+  const canReviewOnboarding = hasPermission(session.user.role, 'onboarding:review');
+  const canAssign = hasPermission(session.user.role, 'milestone:assign');
+  const canTask = hasPermission(session.user.role, 'task:manage');
+  const canReviewMilestone = hasPermission(session.user.role, 'milestone:review');
+  const canPayment = hasPermission(session.user.role, 'payment:manage');
+  const canSupportCreate = hasPermission(session.user.role, 'support:create');
+  const canSupportManage = hasPermission(session.user.role, 'support:manage');
   const paid = Number(startup.totalFeePaid ?? 0);
   const agreed = Number(startup.agreedFee ?? 0);
   const feeProgress = agreed > 0 ? Math.min(100, Math.round((paid / agreed) * 100)) : 0;
 
-  return (
-    <div className="mx-auto w-full max-w-[1350px] p-4 sm:p-6 lg:p-8">
-      <Link href="/startups" className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-prise-text-secondary hover:text-prise-primary">
-        <ArrowLeft size={16} /> Back to startups
-      </Link>
+  return <div className="mx-auto w-full max-w-[1450px] p-4 sm:p-6 lg:p-8">
+    <div className="mb-5 flex items-center justify-between"><Link href="/startups" className="text-sm font-semibold text-prise-text-secondary hover:text-prise-primary">← Back to startups</Link>{canEdit ? <Link href={`/startups/${id}/edit`} className="inline-flex items-center gap-2 rounded-button border bg-white px-3 py-2 text-sm font-semibold"><Pencil size={15} /> Edit profile</Link> : null}</div>
+    <div className="rounded-card bg-prise-sidebar p-6 text-white shadow-card sm:p-8"><div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between"><div><div className="text-sm text-white/55">PRISE 3.0 · Startup 360</div><h1 className="mt-2 max-w-4xl text-2xl font-bold tracking-[-.025em] sm:text-3xl">{startup.name}</h1><div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm text-white/68"><span>{startup.founderName}</span><span>{startup.sector}</span>{startup.operationLocation ? <span className="inline-flex items-center gap-1.5"><MapPin size={14} />{startup.operationLocation}, {startup.state}</span> : null}</div></div><div className="rounded-button bg-white/9 px-4 py-3"><div className="text-xs uppercase tracking-[.08em] text-white/48">Operating status</div><div className="mt-1 text-sm font-semibold">{label(startup.status)}</div></div></div></div>
 
-      <div className="rounded-card bg-prise-sidebar p-6 text-white shadow-card sm:p-8">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="text-sm text-white/55">PRISE 3.0 · Startup 360</div>
-            <h1 className="mt-2 max-w-4xl text-2xl font-bold tracking-[-0.025em] sm:text-3xl">{startup.name}</h1>
-            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm text-white/68">
-              <span>{startup.founderName}</span>
-              <span>{startup.sector}</span>
-              {startup.operationLocation ? <span className="inline-flex items-center gap-1.5"><MapPin size={14} />{startup.operationLocation}, {startup.state}</span> : null}
-            </div>
-          </div>
-          <div className="rounded-button bg-white/9 px-4 py-3">
-            <div className="text-xs uppercase tracking-[0.08em] text-white/48">Operating status</div>
-            <div className="mt-1 text-sm font-semibold">{startup.status.replaceAll('_', ' ')}</div>
-          </div>
-        </div>
+    <div className="mt-5 grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
+      <div className="space-y-5">
+        <Section title="Onboarding decisions" subtitle="Submission, approval and revision status with reviewer attribution.">
+          <div className="divide-y">{startup.onboardingItems.map((item) => { const complete = [OnboardingStatus.SUBMITTED, OnboardingStatus.APPROVED].includes(item.status); return <div key={item.id} className="grid gap-3 py-4 md:grid-cols-[minmax(180px,1fr)_minmax(300px,1.5fr)] md:items-center"><div className="flex items-center gap-3"><div className={`flex h-8 w-8 items-center justify-center rounded-full ${complete ? 'bg-success-bg text-success' : 'bg-warning-bg text-warning'}`}>{complete ? <Check size={16} /> : <Circle size={15} />}</div><div><div className="text-sm font-semibold">{ITEM_LABEL[item.type]}</div><div className="text-xs text-prise-text-secondary">{label(item.status)}</div></div></div>{canReviewOnboarding ? <form key={`${item.id}-${item.status}-${item.remarks ?? ''}`} action={reviewOnboardingAction} className="grid gap-2 sm:grid-cols-[1fr_1.4fr_auto]"><input type="hidden" name="itemId" value={item.id} /><select name="status" defaultValue={item.status} className={inputClass}>{Object.values(OnboardingStatus).map((value) => <option key={value}>{value}</option>)}</select><input name="remarks" defaultValue={item.remarks ?? ''} placeholder="Decision note" className={inputClass} /><SubmitButton className="!py-2">Save</SubmitButton></form> : <p className="text-sm text-prise-text-secondary">{item.remarks || 'No review note'}</p>}</div>; })}</div>
+        </Section>
+
+        <Section title="Milestone plan" subtitle={`${startup.milestones.length} assigned · recommended plan size is 10–15 outcomes.`} action={canAssign ? <Link href={`/startups/${id}/milestones/assign`} className="rounded-button bg-prise-primary px-3 py-2 text-sm font-semibold text-white">Select plan</Link> : undefined}>
+          {startup.milestones.length ? <div className="space-y-3">{startup.milestones.map((milestone) => <details key={milestone.id} className="rounded-input border bg-[#fcfcfe] p-4"><summary className="cursor-pointer list-none"><div className="flex items-start justify-between gap-4"><div><div className="text-xs font-semibold text-prise-primary">Phase {milestone.phase}</div><div className="mt-1 text-sm font-semibold">{milestone.title}</div></div><Badge value={milestone.status} /></div></summary><div className="mt-4 border-t pt-4"><p className="text-sm leading-6 text-prise-text-secondary">{milestone.keyActivity}</p>{milestone.reviews[0] ? <div className="mt-3 rounded-input bg-prise-page p-3 text-xs text-prise-text-secondary">Latest review by {milestone.reviews[0].reviewer.name}: {label(milestone.reviews[0].decision)}{milestone.reviews[0].feedback ? ` · ${milestone.reviews[0].feedback}` : ''}</div> : null}{canReviewMilestone ? <form action={reviewMilestoneAction} className="mt-4 grid gap-2 sm:grid-cols-[180px_1fr_auto]"><input type="hidden" name="milestoneId" value={milestone.id} /><select name="decision" defaultValue={ReviewDecision.COMMENTED} className={inputClass}>{Object.values(ReviewDecision).map((value) => <option key={value}>{value}</option>)}</select><input name="feedback" placeholder="Review feedback" className={inputClass} /><SubmitButton className="!py-2">Record review</SubmitButton></form> : null}</div></details>)}</div> : <div className="rounded-input border border-dashed bg-prise-page p-5"><p className="text-sm font-semibold">No milestones assigned yet</p><p className="mt-1 text-xs leading-5 text-prise-text-secondary">Select only the outcomes that materially move this startup forward.</p></div>}
+        </Section>
+
+        <Section title="Tasks" subtitle="Execution commitments tied to the startup or a milestone.">
+          {canTask ? <details className="mb-4 rounded-input border border-dashed p-4"><summary className="cursor-pointer text-sm font-semibold text-prise-primary">+ Add task</summary><form action={createTaskAction} className="mt-4 grid gap-3 sm:grid-cols-2"><input type="hidden" name="startupId" value={id} /><input name="title" required placeholder="Task outcome" className={inputClass} /><select name="milestoneId" className={inputClass}><option value="">No milestone</option>{startup.milestones.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select><select name="priority" defaultValue={Priority.NORMAL} className={inputClass}>{Object.values(Priority).map((value) => <option key={value}>{value}</option>)}</select><input name="dueDate" type="date" className={inputClass} /><textarea name="description" placeholder="Definition of done" rows={3} className="rounded-input border p-3 sm:col-span-2" /><div className="sm:col-span-2"><SubmitButton>Create task</SubmitButton></div></form></details> : null}
+          <div className="space-y-3">{startup.tasks.map((task) => <details key={task.id} className="rounded-input border p-4"><summary className="cursor-pointer list-none"><div className="flex justify-between gap-3"><div className="text-sm font-semibold">{task.title}</div><Badge value={task.status} /></div></summary>{canTask ? <div className="mt-4 border-t pt-4"><form action={updateTaskAction} className="grid gap-2 sm:grid-cols-2"><input type="hidden" name="taskId" value={task.id} /><input name="title" defaultValue={task.title} required className={inputClass} /><select name="status" defaultValue={task.status} className={inputClass}>{Object.values(TaskStatus).map((value) => <option key={value}>{value}</option>)}</select><select name="priority" defaultValue={task.priority} className={inputClass}>{Object.values(Priority).map((value) => <option key={value}>{value}</option>)}</select><input name="dueDate" type="date" defaultValue={dateInput(task.dueDate)} className={inputClass} /><input name="blockedReason" defaultValue={task.blockedReason ?? ''} placeholder="Blocked reason" className={`${inputClass} sm:col-span-2`} /><textarea name="description" defaultValue={task.description ?? ''} rows={2} className="rounded-input border p-3 sm:col-span-2" /><div><SubmitButton>Update task</SubmitButton></div></form><form action={deleteTaskAction} className="mt-2"><input type="hidden" name="taskId" value={task.id} /><ConfirmButton message="Delete this task? The deletion will remain visible in the audit history.">Delete task</ConfirmButton></form></div> : null}</details>)}{startup.tasks.length === 0 ? <Empty text="No tasks yet." /> : null}</div>
+        </Section>
       </div>
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-[1.15fr_.85fr]">
-        <section className="rounded-card border border-prise-border bg-white p-5 shadow-card sm:p-6">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-prise-text">Onboarding</h2>
-              <p className="mt-1 text-sm text-prise-text-secondary">Source statuses imported from the tracker workbook.</p>
-            </div>
-          </div>
-          <div className="divide-y divide-prise-border">
-            {startup.onboardingItems.map((item) => {
-              const complete = item.status === OnboardingStatus.SUBMITTED || item.status === OnboardingStatus.APPROVED;
-              return (
-                <div key={item.id} className="flex items-center gap-3 py-3.5">
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-full ${complete ? 'bg-success-bg text-success' : item.status === OnboardingStatus.NA ? 'bg-[#f0f0f4] text-prise-text-muted' : 'bg-warning-bg text-warning'}`}>
-                    {complete ? <Check size={16} strokeWidth={2.5} /> : <Circle size={15} />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-prise-text">{ITEM_LABEL[item.type]}</div>
-                    <div className="mt-0.5 text-xs text-prise-text-secondary">{item.status.replaceAll('_', ' ').toLowerCase()}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
+      <div className="space-y-5">
+        <Section title="Fee position" icon={<IndianRupee size={17} className="text-prise-primary" />}><div className="flex items-end justify-between gap-4"><div><div className="text-3xl font-bold">₹{paid.toLocaleString('en-IN')}</div><div className="text-xs text-prise-text-secondary">received</div></div><div className="text-sm text-prise-text-secondary">of {agreed ? `₹${agreed.toLocaleString('en-IN')}` : 'not set'}</div></div><div className="mt-4 h-2 overflow-hidden rounded-pill bg-[#ececf3]"><div className="h-full rounded-pill bg-success" style={{ width: `${feeProgress}%` }} /></div>{canPayment ? <PaymentCreate startupId={id} /> : null}<div className="mt-4 space-y-3">{startup.paymentInstallments.map((payment) => <PaymentRow key={payment.id} payment={payment} canEdit={canPayment} />)}</div></Section>
 
-        <div className="space-y-5">
-          <section className="rounded-card border border-prise-border bg-white p-5 shadow-card sm:p-6">
-            <div className="flex items-center gap-2"><IndianRupee size={17} className="text-prise-primary" /><h2 className="text-base font-semibold">Fee position</h2></div>
-            <div className="mt-5 flex items-end justify-between gap-4">
-              <div><div className="text-3xl font-bold tracking-tight">₹{paid.toLocaleString('en-IN')}</div><div className="mt-1 text-xs text-prise-text-secondary">received</div></div>
-              <div className="text-right text-sm text-prise-text-secondary">of {agreed ? `₹${agreed.toLocaleString('en-IN')}` : 'not set'}</div>
-            </div>
-            <div className="mt-4 h-2 overflow-hidden rounded-pill bg-[#ececf3]"><div className="h-full rounded-pill bg-success" style={{ width: `${feeProgress}%` }} /></div>
-            {startup.agreedFeeRemarks ? <p className="mt-4 rounded-input bg-prise-page p-3 text-xs leading-5 text-prise-text-secondary">{startup.agreedFeeRemarks}</p> : null}
-          </section>
+        <Section title="Support requests" subtitle="Ask for a mentor, expert, intern or program intervention.">{canSupportCreate ? <details className="mb-4 rounded-input border border-dashed p-4"><summary className="cursor-pointer text-sm font-semibold text-prise-primary">+ Request support</summary><form action={createSupportAction} className="mt-4 space-y-3"><input type="hidden" name="startupId" value={id} /><input name="title" required placeholder="What support is needed?" className={inputClass} /><textarea name="description" rows={3} placeholder="Context and desired outcome" className="w-full rounded-input border p-3 text-sm" /><div className="grid grid-cols-2 gap-2"><select name="priority" defaultValue={Priority.NORMAL} className={inputClass}>{Object.values(Priority).map((value) => <option key={value}>{value}</option>)}</select><input name="dueDate" type="date" className={inputClass} /></div><SubmitButton>Create request</SubmitButton></form></details> : null}<div className="space-y-3">{startup.supportRequests.map((request) => <details key={request.id} className="rounded-input border p-4"><summary className="cursor-pointer list-none"><div className="flex justify-between gap-3"><div className="text-sm font-semibold">{request.title}</div><Badge value={request.status} /></div></summary>{canSupportManage ? <div className="mt-4 border-t pt-4"><form action={updateSupportAction} className="space-y-2"><input type="hidden" name="requestId" value={request.id} /><select name="status" defaultValue={request.status} className={inputClass}>{Object.values(SupportRequestStatus).map((value) => <option key={value}>{value}</option>)}</select><select name="assignedToId" defaultValue={request.assignedToId ?? ''} className={inputClass}><option value="">Unassigned</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name} · {label(person.role)}</option>)}</select><input name="dueDate" type="date" defaultValue={dateInput(request.dueDate)} className={inputClass} /><textarea name="outcome" defaultValue={request.outcome ?? ''} rows={2} placeholder="Outcome / resolution" className="w-full rounded-input border p-3 text-sm" /><SubmitButton>Update request</SubmitButton></form><form action={deleteSupportAction} className="mt-2"><input type="hidden" name="requestId" value={request.id} /><ConfirmButton message="Delete this support request?">Delete request</ConfirmButton></form></div> : <p className="mt-3 text-sm text-prise-text-secondary">{request.description}</p>}</details>)}{startup.supportRequests.length === 0 ? <Empty text="No support requests." /> : null}</div></Section>
 
-          <section className="rounded-card border border-prise-border bg-white p-5 shadow-card sm:p-6">
-            <div className="flex items-center gap-2"><Target size={17} className="text-prise-primary" /><h2 className="text-base font-semibold">Milestone plan</h2></div>
-            {startup.milestones.length === 0 ? (
-              <div className="mt-5 rounded-input border border-dashed border-prise-border bg-prise-page p-5">
-                <p className="text-sm font-medium text-prise-text">No startup milestones assigned yet</p>
-                <p className="mt-1.5 text-xs leading-5 text-prise-text-secondary">This matches the source workbook. Select 10–15 relevant milestones jointly with the founder and mentor.</p>
-                <Link href="/milestones" className="mt-4 inline-flex text-sm font-semibold text-prise-primary hover:text-prise-primary-hover">Open milestone library</Link>
-              </div>
-            ) : <div className="mt-4 text-sm text-prise-text-secondary">{startup.milestones.length} milestones assigned.</div>}
-          </section>
-        </div>
+        <Section title="Audit snapshot" icon={<ShieldCheck size={17} className="text-prise-primary" />}><p className="text-sm leading-6 text-prise-text-secondary">Every mutation on this page records the actor, role, timestamp and change context.</p>{hasPermission(session.user.role, 'audit:view') ? <Link href={`/audit?startupId=${id}`} className="mt-4 inline-flex text-sm font-semibold text-prise-primary">View startup history →</Link> : null}</Section>
       </div>
     </div>
-  );
+  </div>;
 }
+
+function Section({ title, subtitle, children, action, icon }: { title: string; subtitle?: string; children: React.ReactNode; action?: React.ReactNode; icon?: React.ReactNode }) { return <section className="rounded-card border bg-white p-5 shadow-card sm:p-6"><div className="mb-5 flex items-start justify-between gap-4"><div><div className="flex items-center gap-2">{icon}<h2 className="text-base font-semibold">{title}</h2></div>{subtitle ? <p className="mt-1 text-sm text-prise-text-secondary">{subtitle}</p> : null}</div>{action}</div>{children}</section>; }
+function Badge({ value }: { value: string }) { return <span className="shrink-0 rounded-pill bg-prise-page px-2.5 py-1 text-[11px] font-semibold text-prise-text-secondary">{label(value)}</span>; }
+function Empty({ text }: { text: string }) { return <div className="rounded-input bg-prise-page p-4 text-sm text-prise-text-secondary">{text}</div>; }
+
+function PaymentCreate({ startupId }: { startupId: string }) { return <details className="mt-5 rounded-input border border-dashed p-4"><summary className="cursor-pointer text-sm font-semibold text-prise-primary"><Plus size={15} className="mr-1 inline" />Add installment</summary><form action={createPaymentAction} className="mt-4 grid gap-2 sm:grid-cols-2"><input type="hidden" name="startupId" value={startupId} /><input name="amount" type="number" min="1" step="0.01" required placeholder="Amount" className={inputClass} /><input name="dueDate" type="date" required className={inputClass} /><select name="status" defaultValue={PaymentStatus.PENDING} className={inputClass}>{Object.values(PaymentStatus).map((value) => <option key={value}>{value}</option>)}</select><input name="paidAt" type="date" className={inputClass} /><input name="reference" placeholder="Reference" className={inputClass} /><input name="remarks" placeholder="Remarks" className={inputClass} /><div className="sm:col-span-2"><SubmitButton>Add installment</SubmitButton></div></form></details>; }
+
+function PaymentRow({ payment, canEdit }: { payment: { id: string; amount: { toString(): string }; dueDate: Date; paidAt: Date | null; status: PaymentStatus; reference: string | null; remarks: string | null }; canEdit: boolean }) { return <details className="rounded-input border p-3"><summary className="cursor-pointer list-none"><div className="flex items-center justify-between gap-3"><div><div className="text-sm font-semibold">₹{Number(payment.amount).toLocaleString('en-IN')}</div><div className="text-xs text-prise-text-secondary">Due {payment.dueDate.toLocaleDateString('en-IN')}</div></div><Badge value={payment.status} /></div></summary>{canEdit ? <div className="mt-3 border-t pt-3"><form action={updatePaymentAction} className="grid gap-2 sm:grid-cols-2"><input type="hidden" name="paymentId" value={payment.id} /><input name="amount" type="number" min="1" step="0.01" defaultValue={payment.amount.toString()} className={inputClass} /><input name="dueDate" type="date" defaultValue={dateInput(payment.dueDate)} className={inputClass} /><select name="status" defaultValue={payment.status} className={inputClass}>{Object.values(PaymentStatus).map((value) => <option key={value}>{value}</option>)}</select><input name="paidAt" type="date" defaultValue={dateInput(payment.paidAt)} className={inputClass} /><input name="reference" defaultValue={payment.reference ?? ''} placeholder="Reference" className={inputClass} /><input name="remarks" defaultValue={payment.remarks ?? ''} placeholder="Remarks" className={inputClass} /><SubmitButton>Update payment</SubmitButton></form><form action={deletePaymentAction} className="mt-2"><input type="hidden" name="paymentId" value={payment.id} /><ConfirmButton message="Delete this payment installment?">Delete installment</ConfirmButton></form></div> : null}</details>; }
