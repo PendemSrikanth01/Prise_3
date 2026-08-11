@@ -1,0 +1,444 @@
+// schema.prisma — PRISE 3.0 tracker
+// Matches the operating model in PRISE_3_Manager_Validation_V2:
+// Program -> Cohort -> Startup -> Phase -> Milestone -> Task -> Deliverable -> Review -> Progress
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// ENUMS — vocabulary lifted directly from your tracker, not invented
+// ---------------------------------------------------------------------------
+
+enum Role {
+  PROGRAM_LEAD
+  PROGRAM_TEAM
+  INTERN
+  MENTOR
+  EXPERT
+  INVESTOR
+  FOUNDER
+}
+
+enum StartupStatus {
+  ACTIVE
+  NEEDS_ATTENTION
+  DISCONTINUED // "Asked to Discontinue" in your sheet
+  WITHDRAWN
+  GRADUATED
+}
+
+enum OnboardingItemType {
+  AGREEMENT
+  BASELINE
+  PITCH_VIDEO
+  LOGO
+  FEE_PAYMENT
+  DOCUMENT_FOLDER
+}
+
+enum OnboardingStatus {
+  PENDING // "Yet to Submit"
+  SUBMITTED // "Sumitted" in source sheet
+  APPROVED
+  NEEDS_REVISION
+  NA // startup discontinued/withdrawn — item no longer applicable
+}
+
+enum MilestoneStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+  APPROVED
+  NEEDS_REVISION
+  NA
+  PAUSED
+}
+
+enum EffortLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  BLOCKED
+}
+
+enum AssignmentRole {
+  MENTOR
+  INTERN
+  EXPERT
+  PROGRAM_LEAD
+}
+
+enum Priority {
+  HIGH
+  NORMAL
+  LOW
+}
+
+enum MilestoneScope {
+  PROGRAM
+  STARTUP
+}
+
+enum MilestoneAssignmentType {
+  MANDATORY
+  SELECTABLE
+}
+
+enum ReviewDecision {
+  COMMENTED
+  REVISION_REQUESTED
+  APPROVED
+}
+
+enum SupportRequestStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CANCELLED
+}
+
+enum SessionType {
+  MENTORING
+  EXPERT
+  REVIEW
+  WORKSHOP
+  PEER_LEARNING
+  FOUNDER_SHOWCASE
+  OTHER
+}
+
+enum SessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  WAIVED
+}
+
+// ---------------------------------------------------------------------------
+// PEOPLE
+// ---------------------------------------------------------------------------
+
+model Person {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  phone        String?
+  role         Role
+  passwordHash String // Auth.js credentials provider — bcrypt hash
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Founder-only: the single startup this person represents
+  founderOfStartupId String?  @unique
+  founderOfStartup   Startup? @relation("FounderPerson", fields: [founderOfStartupId], references: [id])
+
+  assignments          StartupAssignment[]
+  assignedTasks        Task[]              @relation("TaskAssignee")
+  reviewedMilestones   Milestone[]         @relation("MilestoneReviewer")
+  uploadedDeliverables Deliverable[]       @relation("DeliverableUploader")
+  milestoneReviews     MilestoneReview[]   @relation("MilestoneReviewAuthor")
+  requestedSupport     SupportRequest[]    @relation("SupportRequester")
+  assignedSupport      SupportRequest[]    @relation("SupportAssignee")
+  activityLogs         ActivityLog[]
+
+  @@index([role])
+}
+
+// Many-to-many: a mentor/intern/expert can support multiple startups,
+// a startup can have multiple mentors/interns/experts.
+model StartupAssignment {
+  id        String         @id @default(cuid())
+  startupId String
+  personId  String
+  role      AssignmentRole
+  createdAt DateTime       @default(now())
+
+  startup Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  person  Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([startupId, personId, role])
+  @@index([personId])
+  @@index([startupId])
+}
+
+// ---------------------------------------------------------------------------
+// STARTUP
+// ---------------------------------------------------------------------------
+
+model Startup {
+  id     String @id @default(cuid())
+  sNo    Int?   @unique // original S.No from the tracker, for reconciliation
+  cohort String @default("PrISE 3.0")
+
+  name              String
+  founderName       String
+  founderEmail      String?
+  founderPhone      String?
+  operationLocation String?
+  state             String?
+  sector            String?
+  legalStructure    String?
+
+  actualFee          Decimal? @db.Decimal(10, 2)
+  agreedFee          Decimal? @db.Decimal(10, 2)
+  agreedFeeRemarks   String?
+  totalFeePaid       Decimal? @default(0) @db.Decimal(10, 2)
+  documentFolderLink String?
+
+  status       StartupStatus @default(ACTIVE)
+  healthStatus String? // free-text next-action / health note for Home screen
+
+  founder             Person?              @relation("FounderPerson")
+  onboardingItems     OnboardingItem[]
+  milestones          Milestone[]
+  tasks               Task[]
+  assignments         StartupAssignment[]
+  supportRequests     SupportRequest[]
+  sessions            Session[]
+  paymentInstallments PaymentInstallment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// ONBOARDING — Phase 0, the thing happening right now
+// ---------------------------------------------------------------------------
+
+model OnboardingItem {
+  id          String             @id @default(cuid())
+  startupId   String
+  type        OnboardingItemType
+  status      OnboardingStatus   @default(PENDING)
+  submittedAt DateTime?
+  approvedAt  DateTime?
+  remarks     String?
+
+  startup Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([startupId, type])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// MILESTONES — the master 52-item library, and what each startup is assigned
+// ---------------------------------------------------------------------------
+
+model MilestoneTemplate {
+  id             String                  @id @default(cuid())
+  phase          Int // 1-7
+  phaseName      String // e.g. "Foundation & Alignment"
+  title          String
+  keyActivity    String
+  deliverable    String
+  effort         EffortLevel
+  scope          MilestoneScope          @default(STARTUP)
+  assignmentType MilestoneAssignmentType @default(SELECTABLE)
+  isActive       Boolean                 @default(true)
+
+  milestones Milestone[] // startups that adopted this template
+
+  @@unique([phase, title])
+  @@index([phase])
+}
+
+model Milestone {
+  id         String  @id @default(cuid())
+  startupId  String
+  templateId String? // null = custom milestone written for this startup only
+
+  phase       Int
+  title       String
+  keyActivity String?
+  deliverable String?
+  effort      EffortLevel @default(MEDIUM)
+
+  status      MilestoneStatus @default(NOT_STARTED)
+  dueDate     DateTime?
+  submittedAt DateTime?
+  approvedAt  DateTime?
+  evidenceUrl String?
+  reviewerId  String?
+  priority    Priority        @default(NORMAL)
+
+  startup      Startup            @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  template     MilestoneTemplate? @relation(fields: [templateId], references: [id])
+  reviewer     Person?            @relation("MilestoneReviewer", fields: [reviewerId], references: [id])
+  tasks        Task[]
+  deliverables Deliverable[]
+  reviews      MilestoneReview[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([startupId, status])
+  @@index([phase])
+}
+
+// ---------------------------------------------------------------------------
+// WORK — tasks, optionally linked to a milestone
+// ---------------------------------------------------------------------------
+
+model Task {
+  id          String  @id @default(cuid())
+  startupId   String?
+  milestoneId String?
+  assigneeId  String?
+
+  title         String
+  description   String?
+  status        TaskStatus @default(TODO)
+  priority      Priority   @default(NORMAL)
+  dueDate       DateTime?
+  completedAt   DateTime?
+  blockedReason String?
+
+  startup   Startup?   @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  milestone Milestone? @relation(fields: [milestoneId], references: [id])
+  assignee  Person?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([assigneeId, status])
+  @@index([startupId])
+}
+
+model Deliverable {
+  id          String   @id @default(cuid())
+  milestoneId String
+  uploaderId  String?
+  name        String
+  storageKey  String
+  mimeType    String?
+  sizeBytes   Int?
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+
+  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  uploader  Person?   @relation("DeliverableUploader", fields: [uploaderId], references: [id])
+
+  @@index([milestoneId, createdAt])
+}
+
+model MilestoneReview {
+  id          String         @id @default(cuid())
+  milestoneId String
+  reviewerId  String
+  decision    ReviewDecision
+  feedback    String?
+  createdAt   DateTime       @default(now())
+
+  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  reviewer  Person    @relation("MilestoneReviewAuthor", fields: [reviewerId], references: [id])
+
+  @@index([milestoneId, createdAt])
+}
+
+model SupportRequest {
+  id            String               @id @default(cuid())
+  startupId     String
+  requestedById String?
+  assignedToId  String?
+  title         String
+  description   String?
+  resourceType  AssignmentRole?
+  priority      Priority             @default(NORMAL)
+  status        SupportRequestStatus @default(OPEN)
+  outcome       String?
+  dueDate       DateTime?
+  resolvedAt    DateTime?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  startup     Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  requestedBy Person? @relation("SupportRequester", fields: [requestedById], references: [id])
+  assignedTo  Person? @relation("SupportAssignee", fields: [assignedToId], references: [id])
+
+  @@index([startupId, status])
+  @@index([assignedToId, status])
+}
+
+model Session {
+  id              String        @id @default(cuid())
+  startupId       String?
+  title           String
+  type            SessionType
+  status          SessionStatus @default(SCHEDULED)
+  startsAt        DateTime
+  endsAt          DateTime?
+  participantIds  String[]
+  meetingProvider String?
+  externalEventId String?
+  meetingUrl      String?
+  outcome         String?
+  nextActions     String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  startup Startup? @relation(fields: [startupId], references: [id], onDelete: Cascade)
+
+  @@index([startsAt, status])
+  @@index([startupId])
+}
+
+model PaymentInstallment {
+  id        String        @id @default(cuid())
+  startupId String
+  dueDate   DateTime
+  amount    Decimal       @db.Decimal(10, 2)
+  status    PaymentStatus @default(PENDING)
+  paidAt    DateTime?
+  reference String?
+  remarks   String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  startup Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
+
+  @@index([startupId, status])
+  @@index([dueDate, status])
+}
+
+// ---------------------------------------------------------------------------
+// ACTIVITY LOG — auto-written, powers the Activity tab and email triggers
+// ---------------------------------------------------------------------------
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  entityType String // "Startup" | "OnboardingItem" | "Milestone" | "Task"
+  entityId   String
+  actorId    String?
+  action     String // e.g. "status_changed", "created", "approved"
+  meta       Json? // { from, to, field } — free-form, keeps this table generic
+  createdAt  DateTime @default(now())
+
+  actor Person? @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}

@@ -1,26 +1,100 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --prise-sidebar-bg: #1c1b4b;
+  --prise-sidebar-bg-active: #6d5ef5;
+  --prise-primary: #6d5ef5;
+  --prise-primary-hover: #5b4be0;
+  --prise-page-bg: #f6f6fb;
+  --prise-card-bg: #ffffff;
+  --prise-border: #e8e8f1;
+  --prise-text-primary: #17162d;
+  --prise-text-secondary: #696979;
+  --prise-text-muted: #9a9aa8;
+  --prise-danger: #dc3f50;
+  --prise-danger-bg: #fff0f2;
+  --prise-warning: #d9850b;
+  --prise-warning-bg: #fff6df;
+  --prise-info: #3678db;
+  --prise-info-bg: #eef5ff;
+  --prise-success: #17834b;
+  --prise-success-bg: #eaf8ef;
+  --prise-purple: #7557d9;
+  --prise-purple-bg: #f2efff;
+  --prise-radius-card: 16px;
+  --prise-radius-button: 12px;
+  --prise-radius-input: 12px;
+  --prise-radius-pill: 999px;
+  --prise-shadow-card: 0 8px 24px rgb(20 19 43 / 6%);
+  --prise-shadow-card-hover: 0 14px 36px rgb(20 19 43 / 10%);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-prise-sidebar: var(--prise-sidebar-bg);
+  --color-prise-primary: var(--prise-primary);
+  --color-prise-primary-hover: var(--prise-primary-hover);
+  --color-prise-page: var(--prise-page-bg);
+  --color-prise-border: var(--prise-border);
+  --color-prise-text: var(--prise-text-primary);
+  --color-prise-text-secondary: var(--prise-text-secondary);
+  --color-prise-text-muted: var(--prise-text-muted);
+  --color-danger: var(--prise-danger);
+  --color-danger-bg: var(--prise-danger-bg);
+  --color-warning: var(--prise-warning);
+  --color-warning-bg: var(--prise-warning-bg);
+  --color-info: var(--prise-info);
+  --color-info-bg: var(--prise-info-bg);
+  --color-success: var(--prise-success);
+  --color-success-bg: var(--prise-success-bg);
+  --color-accent-purple: var(--prise-purple);
+  --color-accent-purple-bg: var(--prise-purple-bg);
+  --radius-card: var(--prise-radius-card);
+  --radius-button: var(--prise-radius-button);
+  --radius-input: var(--prise-radius-input);
+  --radius-pill: var(--prise-radius-pill);
+  --shadow-card: var(--prise-shadow-card);
+  --shadow-card-hover: var(--prise-shadow-card-hover);
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--prise-border);
+}
+
+html {
+  background: var(--prise-page-bg);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  background: var(--prise-page-bg);
+  color: var(--prise-text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--prise-primary) 30%, transparent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--prise-primary) 22%, white);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }
