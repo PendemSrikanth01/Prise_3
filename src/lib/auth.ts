@@ -16,27 +16,33 @@ export type Permission =
   | 'milestone:assign'
   | 'task:manage'
   | 'milestone:review'
+  | 'deliverable:upload'
+  | 'deliverable:review'
   | 'payment:manage'
   | 'support:create'
   | 'support:manage'
+  | 'session:manage'
+  | 'webinar:manage'
+  | 'notification:manage'
   | 'people:manage'
   | 'audit:view';
 
 const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   PROGRAM_LEAD: new Set([
     'startup:update', 'onboarding:review', 'milestone:assign', 'task:manage',
-    'milestone:review', 'payment:manage', 'support:create', 'support:manage',
-    'people:manage', 'audit:view',
+    'milestone:review', 'deliverable:upload', 'deliverable:review', 'payment:manage', 'support:create', 'support:manage',
+    'session:manage', 'webinar:manage', 'notification:manage', 'people:manage', 'audit:view',
   ]),
   PROGRAM_TEAM: new Set([
     'startup:update', 'onboarding:review', 'milestone:assign', 'task:manage',
-    'milestone:review', 'payment:manage', 'support:create', 'support:manage', 'audit:view',
+    'milestone:review', 'deliverable:upload', 'deliverable:review', 'payment:manage', 'support:create', 'support:manage',
+    'session:manage', 'webinar:manage', 'notification:manage', 'audit:view',
   ]),
   INTERN: new Set(['task:manage', 'support:create', 'support:manage']),
-  MENTOR: new Set(['task:manage', 'milestone:review', 'support:create']),
+  MENTOR: new Set(['task:manage', 'milestone:review', 'deliverable:upload', 'deliverable:review', 'support:create', 'support:manage', 'session:manage']),
   EXPERT: new Set(['support:create', 'support:manage']),
   INVESTOR: new Set(),
-  FOUNDER: new Set(['task:manage', 'support:create']),
+  FOUNDER: new Set(['task:manage', 'deliverable:upload', 'support:create']),
 };
 
 export type AuthUser = {

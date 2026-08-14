@@ -1,0 +1,95 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+import { CalendarDays, ChevronLeft, ChevronRight, Clock3, ExternalLink, Plus, Video, X } from 'lucide-react';
+import { SessionStatus, SessionType } from '@prisma/client';
+import { createCalendarEventAction, deleteSessionAction, updateSessionAction } from '@/app/actions/mentor';
+import { ConfirmButton, SubmitButton } from '@/components/ui/FormButtons';
+
+type EventItem = {
+  id: string; title: string; description: string | null; type: SessionType; status: SessionStatus;
+  startsAt: string; endsAt: string | null; meetingUrl: string | null; outcome: string | null;
+  nextActions: string | null; startupName: string | null; facilitatorName: string | null;
+};
+type Option = { id: string; name: string; role?: string };
+type Props = { events: EventItem[]; startups: Option[]; facilitators: Option[]; canManageSessions: boolean; canManageWebinars: boolean };
+
+const inputClass = 'h-11 w-full rounded-input border border-prise-border bg-white px-3 text-sm outline-none focus:border-prise-primary';
+const colors: Record<SessionType, string> = {
+  MENTORING: 'border-violet-200 bg-violet-50 text-violet-800', EXPERT: 'border-teal-200 bg-teal-50 text-teal-800',
+  REVIEW: 'border-amber-200 bg-amber-50 text-amber-800', WORKSHOP: 'border-blue-200 bg-blue-50 text-blue-800',
+  PEER_LEARNING: 'border-indigo-200 bg-indigo-50 text-indigo-800', FOUNDER_SHOWCASE: 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-800',
+  OTHER: 'border-slate-200 bg-slate-50 text-slate-700',
+};
+const filters = ['ALL', 'MENTORING', 'WORKSHOP', 'REVIEW'] as const;
+
+function dayKey(value: Date | string) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value));
+}
+function time(value: string) { return new Date(value).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' }); }
+function localInput(value: string | null) { if (!value) return ''; return new Date(new Date(value).getTime() + 330 * 60000).toISOString().slice(0, 16); }
+function monthGrid(month: Date) {
+  const first = new Date(month.getFullYear(), month.getMonth(), 1);
+  const mondayOffset = (first.getDay() + 6) % 7;
+  return Array.from({ length: 42 }, (_, index) => new Date(month.getFullYear(), month.getMonth(), 1 - mondayOffset + index));
+}
+
+export function CalendarView({ events, startups, facilitators, canManageSessions, canManageWebinars }: Props) {
+  const firstEvent = events.find((event) => new Date(event.startsAt) >= new Date());
+  const initial = firstEvent ? new Date(firstEvent.startsAt) : new Date();
+  const [month, setMonth] = useState(new Date(initial.getFullYear(), initial.getMonth(), 1));
+  const [selected, setSelected] = useState(dayKey(initial));
+  const [filter, setFilter] = useState<(typeof filters)[number]>('ALL');
+  const [composer, setComposer] = useState(false);
+  const [draftType, setDraftType] = useState<SessionType>(SessionType.MENTORING);
+  const visible = useMemo(() => events.filter((event) => filter === 'ALL' || event.type === filter), [events, filter]);
+  const byDay = useMemo(() => visible.reduce((groups, event) => {
+    const key = dayKey(event.startsAt);
+    const group = groups.get(key) ?? [];
+    group.push(event);
+    groups.set(key, group);
+    return groups;
+  }, new Map<string, EventItem[]>()), [visible]);
+  const days = monthGrid(month);
+  const selectedEvents = byDay.get(selected) ?? [];
+  const upcoming = visible.filter((event) => new Date(event.startsAt) >= new Date()).slice(0, 30);
+  const canCreate = canManageSessions || canManageWebinars;
+
+  return <div className="mx-auto w-full max-w-[1500px] p-4 sm:p-6 lg:p-8">
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div><div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[.12em] text-prise-primary"><CalendarDays size={15} />Program calendar</div><h1 className="text-3xl font-bold tracking-tight">Sessions and webinars</h1><p className="mt-1.5 text-sm text-prise-text-secondary">One place for mentoring, reviews, expert calls and cohort events.</p></div>
+      {canCreate ? <button onClick={() => setComposer(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-button bg-prise-primary px-4 text-sm font-semibold text-white"><Plus size={17} />Schedule event</button> : null}
+    </div>
+
+    <div className="mt-6 flex flex-wrap gap-2" aria-label="Calendar filters">{filters.map((value) => <button key={value} onClick={() => setFilter(value)} className={`rounded-full border px-3.5 py-2 text-xs font-semibold ${filter === value ? 'border-prise-primary bg-prise-primary text-white' : 'border-prise-border bg-white text-prise-text-secondary'}`}>{value === 'ALL' ? 'All' : value === 'WORKSHOP' ? 'Webinars' : value.charAt(0) + value.slice(1).toLowerCase()}</button>)}</div>
+
+    <div className="mt-4 hidden overflow-hidden rounded-card border border-prise-border bg-white shadow-card md:grid xl:grid-cols-[minmax(0,1fr)_330px]">
+      <section className="min-w-0 border-r border-prise-border">
+        <div className="flex items-center justify-between border-b px-5 py-4"><h2 className="text-lg font-bold">{month.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</h2><div className="flex items-center gap-2"><button onClick={() => { const now = new Date(); setMonth(new Date(now.getFullYear(), now.getMonth(), 1)); setSelected(dayKey(now)); }} className="rounded-button border px-3 py-2 text-xs font-semibold">Today</button><button aria-label="Previous month" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} className="rounded-button border p-2"><ChevronLeft size={17} /></button><button aria-label="Next month" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className="rounded-button border p-2"><ChevronRight size={17} /></button></div></div>
+        <div className="grid grid-cols-7 border-b bg-slate-50">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((day) => <div key={day} className="px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-prise-text-secondary">{day}</div>)}</div>
+        <div className="grid grid-cols-7">{days.map((date) => { const key = dayKey(date); const items = byDay.get(key) ?? []; const outside = date.getMonth() !== month.getMonth(); return <button key={key} onClick={() => setSelected(key)} className={`min-h-28 border-b border-r p-2 text-left align-top transition hover:bg-slate-50 ${selected === key ? 'bg-indigo-50/70 ring-2 ring-inset ring-prise-primary' : ''}`}><span className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${outside ? 'text-slate-300' : key === dayKey(new Date()) ? 'bg-prise-primary text-white' : 'text-prise-text'}`}>{date.getDate()}</span><div className="mt-1.5 space-y-1">{items.slice(0, 3).map((event) => <div key={event.id} className={`truncate rounded-md border px-2 py-1 text-[11px] font-semibold ${event.status === SessionStatus.CANCELLED ? 'border-slate-200 bg-slate-100 text-slate-400 line-through' : colors[event.type]}`}>{time(event.startsAt)} · {event.title}</div>)}{items.length > 3 ? <div className="px-1 text-[11px] font-semibold text-prise-text-secondary">+{items.length - 3} more</div> : null}</div></button>; })}</div>
+      </section>
+      <DayPanel date={selected} events={selectedEvents} canManage={canManageSessions || canManageWebinars} />
+    </div>
+
+    <section className="mt-4 rounded-card border border-prise-border bg-white shadow-card md:hidden"><div className="border-b px-4 py-4"><h2 className="font-bold">Upcoming agenda</h2><p className="mt-1 text-xs text-prise-text-secondary">Compact view for smaller screens</p></div><div className="divide-y">{upcoming.map((event) => <EventSummary key={event.id} event={event} />)}{upcoming.length === 0 ? <p className="p-8 text-center text-sm text-prise-text-secondary">No upcoming events.</p> : null}</div></section>
+
+    {composer ? <div className="fixed inset-0 z-[70] flex justify-end bg-[#111027]/45" role="dialog" aria-modal="true" aria-label="Schedule event"><button className="absolute inset-0" aria-label="Close event form" onClick={() => setComposer(false)} /><div className="relative h-full w-full max-w-lg overflow-y-auto bg-white p-6 shadow-2xl"><div className="flex items-center justify-between"><div><div className="text-xs font-semibold uppercase tracking-[.12em] text-prise-primary">New calendar event</div><h2 className="mt-1 text-2xl font-bold">Schedule once</h2></div><button onClick={() => setComposer(false)} className="rounded-full border p-2"><X size={18} /></button></div><form action={createCalendarEventAction} className="mt-6 space-y-4">
+      <label className="block text-sm font-semibold">Event type<select name="type" value={draftType} onChange={(event) => setDraftType(event.target.value as SessionType)} className={`${inputClass} mt-1.5`}>{Object.values(SessionType).filter((type) => type !== SessionType.WORKSHOP || canManageWebinars).map((type) => <option key={type}>{type}</option>)}</select></label>
+      {draftType !== SessionType.WORKSHOP ? <label className="block text-sm font-semibold">Startup<select name="startupId" required className={`${inputClass} mt-1.5`}><option value="">Choose startup</option>{startups.map((startup) => <option key={startup.id} value={startup.id}>{startup.name}</option>)}</select></label> : null}
+      {facilitators.length ? <label className="block text-sm font-semibold">Facilitator<select name="facilitatorId" className={`${inputClass} mt-1.5`}><option value="">Use my account</option>{facilitators.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label> : null}
+      <label className="block text-sm font-semibold">Title<input name="title" required placeholder="Clear agenda or event title" className={`${inputClass} mt-1.5`} /></label>
+      <div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-semibold">Starts<input name="startsAt" type="datetime-local" required className={`${inputClass} mt-1.5`} /></label><label className="block text-sm font-semibold">Ends<input name="endsAt" type="datetime-local" className={`${inputClass} mt-1.5`} /></label></div>
+      <label className="block text-sm font-semibold">Meeting link<input name="meetingUrl" type="url" placeholder="https://meet.google.com/..." className={`${inputClass} mt-1.5`} /></label>
+      <label className="block text-sm font-semibold">Notes<textarea name="description" rows={4} placeholder="Context and intended outcome" className="mt-1.5 w-full rounded-input border border-prise-border p-3 text-sm" /></label>
+      <SubmitButton className="w-full">Schedule event</SubmitButton>
+    </form></div></div> : null}
+  </div>;
+}
+
+function DayPanel({ date, events, canManage }: { date: string; events: EventItem[]; canManage: boolean }) {
+  return <aside className="min-h-[660px] bg-slate-50/55 p-5"><div className="text-xs font-semibold uppercase tracking-[.12em] text-prise-primary">Selected day</div><h2 className="mt-1 text-xl font-bold">{new Date(`${date}T12:00:00`).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</h2><div className="mt-5 space-y-3">{events.map((event) => <details key={event.id} className="rounded-xl border border-prise-border bg-white p-4 shadow-sm"><summary className="cursor-pointer list-none"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="flex items-center gap-2 text-xs font-semibold text-prise-text-secondary"><Clock3 size={14} />{time(event.startsAt)}</div><div className="mt-1.5 font-semibold">{event.title}</div><div className="mt-1 text-xs text-prise-text-secondary">{event.startupName ?? 'All startups'} · {event.facilitatorName ?? 'Program'}</div></div><span className={`mt-1 h-3 w-3 shrink-0 rounded-full border ${colors[event.type]}`} /></div></summary><div className="mt-4 border-t pt-4">{canManage ? <EventEditor event={event} /> : <EventDetails event={event} />}</div></details>)}{events.length === 0 ? <div className="rounded-xl border border-dashed bg-white p-8 text-center text-sm text-prise-text-secondary">Nothing scheduled for this day.</div> : null}</div></aside>;
+}
+function EventDetails({ event }: { event: EventItem }) { return <div className="space-y-3 text-sm text-prise-text-secondary"><p>{event.description || 'No notes added.'}</p>{event.meetingUrl ? <a href={event.meetingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 font-semibold text-prise-primary"><Video size={15} />Join meeting<ExternalLink size={13} /></a> : null}</div>; }
+function EventEditor({ event }: { event: EventItem }) { return <form action={updateSessionAction} className="space-y-3"><input type="hidden" name="sessionId" value={event.id} /><input name="title" required defaultValue={event.title} className={inputClass} /><select name="status" defaultValue={event.status} className={inputClass}>{Object.values(SessionStatus).map((value) => <option key={value}>{value}</option>)}</select><div className="grid grid-cols-2 gap-2"><input name="startsAt" type="datetime-local" required defaultValue={localInput(event.startsAt)} className={inputClass} /><input name="endsAt" type="datetime-local" defaultValue={localInput(event.endsAt)} className={inputClass} /></div><input name="meetingUrl" type="url" defaultValue={event.meetingUrl ?? ''} placeholder="Meeting link" className={inputClass} /><textarea name="description" defaultValue={event.description ?? ''} rows={2} placeholder="Notes" className="w-full rounded-input border p-3 text-sm" /><input name="outcome" defaultValue={event.outcome ?? ''} placeholder="Outcome" className={inputClass} /><textarea name="nextActions" defaultValue={event.nextActions ?? ''} rows={2} placeholder="Next actions" className="w-full rounded-input border p-3 text-sm" /><div className="flex items-center justify-between"><SubmitButton>Save</SubmitButton>{event.status !== SessionStatus.COMPLETED ? <ConfirmButton formAction={deleteSessionAction} message="Delete this event?">Delete</ConfirmButton> : null}</div></form>; }
+function EventSummary({ event }: { event: EventItem }) { return <div className="flex gap-3 p-4"><div className={`mt-1 h-10 w-1 shrink-0 rounded-full border ${colors[event.type]}`} /><div className="min-w-0"><div className="text-xs font-semibold text-prise-primary">{new Date(event.startsAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' })} · {time(event.startsAt)}</div><div className="mt-1 font-semibold">{event.title}</div><div className="mt-1 text-xs text-prise-text-secondary">{event.startupName ?? 'All startups'} · {event.type.replaceAll('_', ' ').toLowerCase()}</div></div></div>; }

@@ -1,17 +1,15 @@
 'use server';
 
 import { compare, hash } from 'bcryptjs';
+import { OnboardingItemType, Prisma, Role } from '@prisma/client';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { clearAuthSession, createAuthSession, privacyHash, requireSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { text } from '@/lib/form';
+import { validPassword } from '@/lib/password';
 
 export type AuthActionState = { error?: string } | undefined;
-
-function strongPassword(value: string) {
-  return value.length >= 12 && /[a-z]/.test(value) && /[A-Z]/.test(value) && /\d/.test(value) && /[^A-Za-z0-9]/.test(value);
-}
 
 export async function loginAction(_: AuthActionState, formData: FormData): Promise<AuthActionState> {
   const email = text(formData, 'email', 254).toLowerCase();
@@ -61,7 +59,7 @@ export async function changePasswordAction(_: AuthActionState, formData: FormDat
   const newPassword = text(formData, 'newPassword', 256);
   const confirmPassword = text(formData, 'confirmPassword', 256);
   if (newPassword !== confirmPassword) return { error: 'The new passwords do not match.' };
-  if (!strongPassword(newPassword)) return { error: 'Use 12+ characters with uppercase, lowercase, a number and a symbol.' };
+  if (!validPassword(newPassword)) return { error: 'Use at least 6 characters.' };
 
   const person = await prisma.person.findUniqueOrThrow({ where: { id: session.user.id }, select: { passwordHash: true } });
   if (!(await compare(currentPassword, person.passwordHash))) return { error: 'Current password is incorrect.' };
@@ -72,5 +70,81 @@ export async function changePasswordAction(_: AuthActionState, formData: FormDat
     prisma.person.update({ where: { id: session.user.id }, data: { passwordHash, mustChangePassword: false } }),
     prisma.authSession.updateMany({ where: { personId: session.user.id, id: { not: session.sessionId } }, data: { revokedAt: new Date() } }),
   ]);
+  redirect('/');
+}
+
+export async function registerAction(_: AuthActionState, formData: FormData): Promise<AuthActionState> {
+  const name = text(formData, 'name', 160);
+  const startupName = text(formData, 'startupName', 180);
+  const email = text(formData, 'email', 254).toLowerCase();
+  const password = text(formData, 'password', 256);
+  const confirmPassword = text(formData, 'confirmPassword', 256);
+  if (!name || !startupName || !email || !password) return { error: 'Complete all registration fields.' };
+  if (!/^\S+@\S+\.\S+$/.test(email)) return { error: 'Enter a valid email address.' };
+  if (!validPassword(password)) return { error: 'Password must contain at least 6 characters.' };
+  if (password !== confirmPassword) return { error: 'The passwords do not match.' };
+
+  const existing = await prisma.person.findUnique({ where: { email }, select: { id: true } });
+  if (existing) return { error: 'An account already exists for this email. Sign in instead.' };
+
+  try {
+    const person = await prisma.$transaction(async (tx) => {
+      const startup = await tx.startup.create({
+        data: {
+          name: startupName,
+          founderName: name,
+          founderEmail: email,
+          onboardingItems: { create: Object.values(OnboardingItemType).map((type) => ({ type })) },
+        },
+      });
+      const templates = await tx.milestoneTemplate.findMany({
+        where: { isActive: true, scope: 'STARTUP' },
+        orderBy: [{ phase: 'asc' }, { title: 'asc' }],
+        take: 10,
+      });
+      if (templates.length) {
+        await tx.milestone.createMany({
+          data: templates.map((template) => ({
+            startupId: startup.id,
+            templateId: template.id,
+            phase: template.phase,
+            title: template.title,
+            keyActivity: template.keyActivity,
+            deliverable: template.deliverable,
+            effort: template.effort,
+          })),
+        });
+      }
+      const created = await tx.person.create({
+        data: {
+          name,
+          email,
+          role: Role.FOUNDER,
+          passwordHash: await hash(password, 12),
+          mustChangePassword: false,
+          founderOfStartupId: startup.id,
+        },
+      });
+      await tx.activityLog.create({
+        data: {
+          actorId: created.id,
+          actorRole: Role.FOUNDER,
+          startupId: startup.id,
+          entityType: 'Person',
+          entityId: created.id,
+          action: 'self_registered',
+          summary: `${name} registered ${startupName}`,
+        },
+      });
+      return created;
+    });
+    const requestHeaders = await headers();
+    await createAuthSession(person.id, requestHeaders.get('user-agent'));
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return { error: 'An account already exists for this email. Sign in instead.' };
+    }
+    return { error: 'Registration could not be completed. Please try again.' };
+  }
   redirect('/');
 }

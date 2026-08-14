@@ -144,8 +144,8 @@ async function main() {
   // --- 1. Program lead account (change password after first login) ---
   const adminEmail = process.env.ADMIN_EMAIL;
   const adminInitialPassword = process.env.ADMIN_INITIAL_PASSWORD;
-  if (!adminEmail || !adminInitialPassword || adminInitialPassword.length < 12) {
-    throw new Error('Set ADMIN_EMAIL and an ADMIN_INITIAL_PASSWORD of at least 12 characters before seeding.');
+  if (!adminEmail || !adminInitialPassword || adminInitialPassword.length < 6) {
+    throw new Error('Set ADMIN_EMAIL and an ADMIN_INITIAL_PASSWORD of at least 6 characters before seeding.');
   }
   const adminPasswordHash = await bcrypt.hash(adminInitialPassword, 12);
   const admin = await prisma.person.upsert({

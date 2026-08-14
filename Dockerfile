@@ -31,7 +31,9 @@ ENV PORT=3000
 WORKDIR /app
 
 RUN groupadd --system --gid 1001 nodejs \
-  && useradd --system --uid 1001 --gid nodejs nextjs
+  && useradd --system --uid 1001 --gid nodejs nextjs \
+  && mkdir -p /app/uploads \
+  && chown nextjs:nodejs /app/uploads
 
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./

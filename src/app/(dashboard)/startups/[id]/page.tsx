@@ -1,16 +1,14 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { Check, Circle, IndianRupee, MapPin, Pencil, Plus, ShieldCheck } from 'lucide-react';
 import {
-  Check, Circle, IndianRupee, MapPin, Pencil, Plus, ShieldCheck,
-} from 'lucide-react';
-import {
-  OnboardingStatus as PrismaOnboardingStatus, PaymentStatus, Priority, ReviewDecision, SupportRequestStatus, TaskStatus,
+  DeliverableStatus, OnboardingStatus as PrismaOnboardingStatus, PaymentStatus, Priority, SupportRequestStatus, TaskStatus,
 } from '@prisma/client';
 import {
   createPaymentAction, createSupportAction, createTaskAction, deletePaymentAction, deleteSupportAction,
-  deleteTaskAction, reviewMilestoneAction, reviewOnboardingAction, updatePaymentAction,
-  updateSupportAction, updateTaskAction,
+  deleteTaskAction, reviewOnboardingAction, updatePaymentAction, updateSupportAction, updateTaskAction,
 } from '@/app/actions/workflows';
+import { MilestonePlan } from '@/components/startups/MilestonePlan';
 import { ConfirmButton, SubmitButton } from '@/components/ui/FormButtons';
 import { accessibleStartupWhere, hasPermission, requireSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
@@ -30,7 +28,12 @@ export default async function StartupDetailPage({ params }: { params: Promise<{ 
     where: { id, ...accessibleStartupWhere(session.user) },
     include: {
       onboardingItems: { orderBy: { type: 'asc' } },
-      milestones: { orderBy: [{ phase: 'asc' }, { dueDate: 'asc' }], include: { reviews: { orderBy: { createdAt: 'desc' }, take: 1, include: { reviewer: { select: { name: true } } } } } },
+      milestones: { orderBy: [{ phase: 'asc' }, { dueDate: 'asc' }], include: {
+        template: { select: { phaseName: true } },
+        stakeholderStatuses: { include: { updatedBy: { select: { name: true } } } },
+        deliverables: { where: { status: { not: DeliverableStatus.ARCHIVED } }, orderBy: { createdAt: 'desc' }, include: { uploader: { select: { name: true } }, reviewer: { select: { name: true } } } },
+        reviews: { orderBy: { createdAt: 'desc' }, take: 1, include: { reviewer: { select: { name: true } } } },
+      } },
       tasks: { orderBy: [{ status: 'asc' }, { dueDate: 'asc' }] },
       supportRequests: { orderBy: { createdAt: 'desc' } },
       paymentInstallments: { orderBy: { dueDate: 'desc' } },
@@ -43,6 +46,7 @@ export default async function StartupDetailPage({ params }: { params: Promise<{ 
   const canAssign = hasPermission(session.user.role, 'milestone:assign');
   const canTask = hasPermission(session.user.role, 'task:manage');
   const canReviewMilestone = hasPermission(session.user.role, 'milestone:review');
+  const canUploadEvidence = hasPermission(session.user.role, 'deliverable:upload');
   const canPayment = hasPermission(session.user.role, 'payment:manage');
   const canSupportCreate = hasPermission(session.user.role, 'support:create');
   const canSupportManage = hasPermission(session.user.role, 'support:manage');
@@ -54,15 +58,15 @@ export default async function StartupDetailPage({ params }: { params: Promise<{ 
     <div className="mb-5 flex items-center justify-between"><Link href="/startups" className="text-sm font-semibold text-prise-text-secondary hover:text-prise-primary">← Back to startups</Link>{canEdit ? <Link href={`/startups/${id}/edit`} className="inline-flex items-center gap-2 rounded-button border bg-white px-3 py-2 text-sm font-semibold"><Pencil size={15} /> Edit profile</Link> : null}</div>
     <div className="rounded-card bg-prise-sidebar p-6 text-white shadow-card sm:p-8"><div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between"><div><div className="text-sm text-white/55">PRISE 3.0 · Startup 360</div><h1 className="mt-2 max-w-4xl text-2xl font-bold tracking-[-.025em] sm:text-3xl">{startup.name}</h1><div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm text-white/68"><span>{startup.founderName}</span><span>{startup.sector}</span>{startup.operationLocation ? <span className="inline-flex items-center gap-1.5"><MapPin size={14} />{startup.operationLocation}, {startup.state}</span> : null}</div></div><div className="rounded-button bg-white/9 px-4 py-3"><div className="text-xs uppercase tracking-[.08em] text-white/48">Operating status</div><div className="mt-1 text-sm font-semibold">{label(startup.status)}</div></div></div></div>
 
-    <div className="mt-5 grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
+    <nav className="sticky top-0 z-10 mt-4 flex gap-1 overflow-x-auto rounded-xl border border-prise-border bg-white/95 p-1.5 shadow-sm backdrop-blur" aria-label="Startup workspace shortcuts"><a href="#overview" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Overview</a><a href="#milestones" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Milestones</a><Link href="/work" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Tasks</Link><Link href="/documents" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Files</Link><Link href="/calendar" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Calendar</Link><Link href="/support" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Support</Link></nav>
+
+    <div id="overview" className="mt-5 grid scroll-mt-20 gap-5 xl:grid-cols-[1.2fr_.8fr]">
       <div className="space-y-5">
         <Section title="Onboarding decisions" subtitle="Submission, approval and revision status with reviewer attribution.">
           <div className="divide-y">{startup.onboardingItems.map((item) => { const complete = [OnboardingStatus.SUBMITTED, OnboardingStatus.APPROVED].includes(item.status); return <div key={item.id} className="grid gap-3 py-4 md:grid-cols-[minmax(180px,1fr)_minmax(300px,1.5fr)] md:items-center"><div className="flex items-center gap-3"><div className={`flex h-8 w-8 items-center justify-center rounded-full ${complete ? 'bg-success-bg text-success' : 'bg-warning-bg text-warning'}`}>{complete ? <Check size={16} /> : <Circle size={15} />}</div><div><div className="text-sm font-semibold">{ITEM_LABEL[item.type]}</div><div className="text-xs text-prise-text-secondary">{label(item.status)}</div></div></div>{canReviewOnboarding ? <form key={`${item.id}-${item.status}-${item.remarks ?? ''}`} action={reviewOnboardingAction} className="grid gap-2 sm:grid-cols-[1fr_1.4fr_auto]"><input type="hidden" name="itemId" value={item.id} /><select name="status" defaultValue={item.status} className={inputClass}>{Object.values(OnboardingStatus).map((value) => <option key={value}>{value}</option>)}</select><input name="remarks" defaultValue={item.remarks ?? ''} placeholder="Decision note" className={inputClass} /><SubmitButton className="!py-2">Save</SubmitButton></form> : <p className="text-sm text-prise-text-secondary">{item.remarks || 'No review note'}</p>}</div>; })}</div>
         </Section>
 
-        <Section title="Milestone plan" subtitle={`${startup.milestones.length} assigned · recommended plan size is 10–15 outcomes.`} action={canAssign ? <Link href={`/startups/${id}/milestones/assign`} className="rounded-button bg-prise-primary px-3 py-2 text-sm font-semibold text-white">Select plan</Link> : undefined}>
-          {startup.milestones.length ? <div className="space-y-3">{startup.milestones.map((milestone) => <details key={milestone.id} className="rounded-input border bg-[#fcfcfe] p-4"><summary className="cursor-pointer list-none"><div className="flex items-start justify-between gap-4"><div><div className="text-xs font-semibold text-prise-primary">Phase {milestone.phase}</div><div className="mt-1 text-sm font-semibold">{milestone.title}</div></div><Badge value={milestone.status} /></div></summary><div className="mt-4 border-t pt-4"><p className="text-sm leading-6 text-prise-text-secondary">{milestone.keyActivity}</p>{milestone.reviews[0] ? <div className="mt-3 rounded-input bg-prise-page p-3 text-xs text-prise-text-secondary">Latest review by {milestone.reviews[0].reviewer.name}: {label(milestone.reviews[0].decision)}{milestone.reviews[0].feedback ? ` · ${milestone.reviews[0].feedback}` : ''}</div> : null}{canReviewMilestone ? <form action={reviewMilestoneAction} className="mt-4 grid gap-2 sm:grid-cols-[180px_1fr_auto]"><input type="hidden" name="milestoneId" value={milestone.id} /><select name="decision" defaultValue={ReviewDecision.COMMENTED} className={inputClass}>{Object.values(ReviewDecision).map((value) => <option key={value}>{value}</option>)}</select><input name="feedback" placeholder="Review feedback" className={inputClass} /><SubmitButton className="!py-2">Record review</SubmitButton></form> : null}</div></details>)}</div> : <div className="rounded-input border border-dashed bg-prise-page p-5"><p className="text-sm font-semibold">No milestones assigned yet</p><p className="mt-1 text-xs leading-5 text-prise-text-secondary">Select only the outcomes that materially move this startup forward.</p></div>}
-        </Section>
+        <MilestonePlan startupId={id} milestones={startup.milestones} role={session.user.role} canAssign={canAssign} canReview={canReviewMilestone} canUpload={canUploadEvidence} />
 
         <Section title="Tasks" subtitle="Execution commitments tied to the startup or a milestone.">
           {canTask ? <details className="mb-4 rounded-input border border-dashed p-4"><summary className="cursor-pointer text-sm font-semibold text-prise-primary">+ Add task</summary><form action={createTaskAction} className="mt-4 grid gap-3 sm:grid-cols-2"><input type="hidden" name="startupId" value={id} /><input name="title" required placeholder="Task outcome" className={inputClass} /><select name="milestoneId" className={inputClass}><option value="">No milestone</option>{startup.milestones.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select><select name="priority" defaultValue={Priority.NORMAL} className={inputClass}>{Object.values(Priority).map((value) => <option key={value}>{value}</option>)}</select><input name="dueDate" type="date" className={inputClass} /><textarea name="description" placeholder="Definition of done" rows={3} className="rounded-input border p-3 sm:col-span-2" /><div className="sm:col-span-2"><SubmitButton>Create task</SubmitButton></div></form></details> : null}

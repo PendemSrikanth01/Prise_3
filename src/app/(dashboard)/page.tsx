@@ -1,5 +1,5 @@
 import { AlertCircle, Building2, ClipboardCheck, Library, Target, Users2 } from 'lucide-react';
-import { OnboardingItemType, OnboardingStatus, StartupStatus } from '@prisma/client';
+import { OnboardingItemType, OnboardingStatus, Role, StartupStatus } from '@prisma/client';
 import {
   HeroSpotlightCard,
   QuickActionCard,
@@ -10,6 +10,8 @@ import {
 import { CohortChartCard, type WeeklyProgress } from '@/components/ui/CohortChartCard';
 import { prisma } from '@/lib/prisma';
 import { accessibleStartupWhere, requireSession } from '@/lib/auth';
+import { MentorDashboard } from '@/components/dashboard/MentorDashboard';
+import { FounderDashboard } from '@/components/dashboard/FounderDashboard';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +31,8 @@ const ITEM_LABEL: Record<(typeof CORE_ONBOARDING)[number], string> = {
 
 export default async function HomePage() {
   const session = await requireSession();
+  if (session.user.role === Role.MENTOR) return <MentorDashboard user={session.user} />;
+  if (session.user.role === Role.FOUNDER) return <FounderDashboard user={session.user} />;
   const scope = accessibleStartupWhere(session.user);
   const [activeCount, selectedCount, attentionStartups, pendingCoreItems, templateCount, completionGroups] =
     await Promise.all([

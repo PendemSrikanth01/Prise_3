@@ -133,6 +133,45 @@ enum PaymentStatus {
   WAIVED
 }
 
+enum NotificationKind {
+  ACCOUNT_WELCOME
+  SUPPORT_OPPORTUNITY
+  SESSION_INVITE
+  WEEKLY_PROGRESS
+  GENERAL
+}
+
+enum NotificationStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum DeliverableStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  NEEDS_REVISION
+  ARCHIVED
+}
+
+enum MilestoneStakeholderLane {
+  STARTUP
+  MENTOR
+  PROGRAM
+}
+
+enum MilestoneStakeholderState {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+  APPROVED
+  NEEDS_REVISION
+  BLOCKED
+}
+
 // ---------------------------------------------------------------------------
 // PEOPLE
 // ---------------------------------------------------------------------------
@@ -158,12 +197,16 @@ model Person {
   assignedTasks        Task[]              @relation("TaskAssignee")
   reviewedMilestones   Milestone[]         @relation("MilestoneReviewer")
   uploadedDeliverables Deliverable[]       @relation("DeliverableUploader")
+  reviewedDeliverables Deliverable[]       @relation("DeliverableReviewer")
+  milestoneStatusUpdates MilestoneStakeholderStatus[] @relation("MilestoneStatusUpdater")
   milestoneReviews     MilestoneReview[]   @relation("MilestoneReviewAuthor")
   requestedSupport     SupportRequest[]    @relation("SupportRequester")
   assignedSupport      SupportRequest[]    @relation("SupportAssignee")
   activityLogs         ActivityLog[]
   authSessions         AuthSession[]
   onboardingReviews    OnboardingItem[]    @relation("OnboardingReviewer")
+  facilitatedSessions Session[]            @relation("SessionFacilitator")
+  notifications       Notification[]       @relation("NotificationRecipient")
 
   @@index([role])
   @@index([isActive])
@@ -329,6 +372,7 @@ model Milestone {
   tasks        Task[]
   deliverables Deliverable[]
   reviews      MilestoneReview[]
+  stakeholderStatuses MilestoneStakeholderStatus[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -379,13 +423,42 @@ model Deliverable {
   mimeType    String?
   sizeBytes   Int?
   version     Int      @default(1)
+  status      DeliverableStatus @default(SUBMITTED)
+  description String?
+  reviewerId  String?
+  feedback    String?
+  submittedAt DateTime? @default(now())
+  reviewedAt  DateTime?
+  stakeholderLane MilestoneStakeholderLane?
   createdAt   DateTime @default(now())
 
   milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
   uploader  Person?   @relation("DeliverableUploader", fields: [uploaderId], references: [id])
+  reviewer  Person?   @relation("DeliverableReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
 
   @@index([milestoneId, createdAt])
   @@index([uploaderId])
+  @@index([status, createdAt])
+  @@index([reviewerId])
+  @@index([milestoneId, stakeholderLane, createdAt])
+}
+
+model MilestoneStakeholderStatus {
+  id          String                    @id @default(cuid())
+  milestoneId String
+  lane        MilestoneStakeholderLane
+  state       MilestoneStakeholderState @default(NOT_STARTED)
+  note        String?
+  updatedById String
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+
+  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  updatedBy  Person    @relation("MilestoneStatusUpdater", fields: [updatedById], references: [id])
+
+  @@unique([milestoneId, lane])
+  @@index([lane, state])
+  @@index([updatedById, updatedAt])
 }
 
 model MilestoneReview {
@@ -430,12 +503,15 @@ model SupportRequest {
 model Session {
   id              String        @id @default(cuid())
   startupId       String?
+  facilitatorId   String?
   title           String
+  description     String?
   type            SessionType
   status          SessionStatus @default(SCHEDULED)
   startsAt        DateTime
   endsAt          DateTime?
   participantIds  String[]
+  isCohortWide    Boolean       @default(false)
   meetingProvider String?
   externalEventId String?
   meetingUrl      String?
@@ -444,10 +520,39 @@ model Session {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  startup Startup? @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  startup     Startup? @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  facilitator Person?  @relation("SessionFacilitator", fields: [facilitatorId], references: [id], onDelete: SetNull)
 
   @@index([startsAt, status])
   @@index([startupId])
+  @@index([facilitatorId, startsAt])
+  @@index([participantIds], type: Gin)
+}
+
+model Notification {
+  id                String             @id @default(cuid())
+  recipientId       String?
+  recipientEmail    String
+  kind              NotificationKind
+  status            NotificationStatus @default(PENDING)
+  subject           String
+  htmlBody          String
+  textBody          String?
+  relatedEntityType String?
+  relatedEntityId   String?
+  scheduledFor      DateTime           @default(now())
+  sentAt            DateTime?
+  attempts          Int                @default(0)
+  providerMessageId String?
+  lastError         String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  recipient Person? @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: SetNull)
+
+  @@index([status, scheduledFor])
+  @@index([recipientId, createdAt])
+  @@index([relatedEntityType, relatedEntityId])
 }
 
 model PaymentInstallment {

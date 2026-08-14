@@ -21,6 +21,27 @@ export function optionalDate(formData: FormData, key: string) {
   return date;
 }
 
+export function requiredDateTime(formData: FormData, key: string) {
+  const value = text(formData, key, 40);
+  const date = parseDateTime(value);
+  if (!value || Number.isNaN(date.getTime())) throw new Error(`${key} must be a valid date and time`);
+  return date;
+}
+
+export function optionalDateTime(formData: FormData, key: string) {
+  const value = text(formData, key, 40);
+  if (!value) return null;
+  const date = parseDateTime(value);
+  if (Number.isNaN(date.getTime())) throw new Error(`${key} must be a valid date and time`);
+  return date;
+}
+
+function parseDateTime(value: string) {
+  // datetime-local omits a timezone. PRISE currently operates in India, so store it as IST.
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+  return new Date(hasTimezone ? value : `${value}:00+05:30`);
+}
+
 export function positiveMoney(formData: FormData, key: string) {
   const value = Number(text(formData, key, 32));
   if (!Number.isFinite(value) || value <= 0 || value > 100_000_000) throw new Error(`${key} must be a positive amount`);

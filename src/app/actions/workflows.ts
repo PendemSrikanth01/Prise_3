@@ -2,14 +2,18 @@
 
 import { hash } from 'bcryptjs';
 import {
-  MilestoneStatus, OnboardingStatus, PaymentStatus, Priority, ReviewDecision,
+  AssignmentRole, MilestoneStakeholderLane, MilestoneStakeholderState, MilestoneStatus, NotificationKind, OnboardingStatus, PaymentStatus, Priority, ReviewDecision,
   Role, StartupStatus, SupportRequestStatus, TaskStatus,
 } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { auditData } from '@/lib/audit';
 import { enumValue, optionalDate, optionalText, positiveMoney, requiredText, text } from '@/lib/form';
-import { requirePermission, requireStartupAccess } from '@/lib/auth';
+import { requirePermission, requireSession, requireStartupAccess } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { validPassword } from '@/lib/password';
+import { accountWelcomeTemplate, supportOpportunityTemplate } from '@/lib/notification-templates';
+
+const APP_URL = () => process.env.APP_URL || 'http://127.0.0.1:3010';
 
 function refreshStartup(startupId: string) {
   revalidatePath('/');
@@ -141,6 +145,51 @@ export async function reviewMilestoneAction(formData: FormData) {
   refreshStartup(milestone.startupId);
 }
 
+export async function updateMilestoneStakeholderStatusAction(formData: FormData) {
+  const session = await requireSession();
+  const milestoneId = requiredText(formData, 'milestoneId', 64);
+  const milestone = await prisma.milestone.findUniqueOrThrow({ where: { id: milestoneId }, select: { startupId: true, title: true } });
+  await requireStartupAccess(milestone.startupId);
+  const lane = enumValue(MilestoneStakeholderLane, formData.get('lane'), 'lane');
+  const state = enumValue(MilestoneStakeholderState, formData.get('state'), 'state');
+  const allowedLane = session.user.role === Role.FOUNDER
+    ? MilestoneStakeholderLane.STARTUP
+    : session.user.role === Role.MENTOR
+      ? MilestoneStakeholderLane.MENTOR
+      : session.user.role === Role.PROGRAM_LEAD || session.user.role === Role.PROGRAM_TEAM
+        ? MilestoneStakeholderLane.PROGRAM
+        : null;
+  if (lane !== allowedLane) throw new Error('You can update only your role status.');
+  const laneStates: Record<MilestoneStakeholderLane, MilestoneStakeholderState[]> = {
+    STARTUP: [MilestoneStakeholderState.NOT_STARTED, MilestoneStakeholderState.IN_PROGRESS, MilestoneStakeholderState.SUBMITTED, MilestoneStakeholderState.BLOCKED],
+    MENTOR: [MilestoneStakeholderState.NOT_STARTED, MilestoneStakeholderState.IN_PROGRESS, MilestoneStakeholderState.APPROVED, MilestoneStakeholderState.NEEDS_REVISION],
+    PROGRAM: [MilestoneStakeholderState.NOT_STARTED, MilestoneStakeholderState.IN_PROGRESS, MilestoneStakeholderState.APPROVED, MilestoneStakeholderState.NEEDS_REVISION],
+  };
+  if (!laneStates[lane].includes(state)) throw new Error('That status is not available for this role.');
+  await prisma.$transaction(async (tx) => {
+    const before = await tx.milestoneStakeholderStatus.findUnique({ where: { milestoneId_lane: { milestoneId, lane } }, select: { state: true } });
+    await tx.milestoneStakeholderStatus.upsert({
+      where: { milestoneId_lane: { milestoneId, lane } },
+      update: { state, note: optionalText(formData, 'note', 1000), updatedById: session.user.id },
+      create: { milestoneId, lane, state, note: optionalText(formData, 'note', 1000), updatedById: session.user.id },
+    });
+    const statuses = await tx.milestoneStakeholderStatus.findMany({ where: { milestoneId }, select: { lane: true, state: true } });
+    const stateByLane = new Map(statuses.map((item) => [item.lane, item.state]));
+    const summary = stateByLane.get(MilestoneStakeholderLane.PROGRAM) === MilestoneStakeholderState.APPROVED
+      ? MilestoneStatus.APPROVED
+      : statuses.some((item) => item.state === MilestoneStakeholderState.NEEDS_REVISION)
+        ? MilestoneStatus.NEEDS_REVISION
+        : stateByLane.get(MilestoneStakeholderLane.STARTUP) === MilestoneStakeholderState.SUBMITTED
+          ? MilestoneStatus.SUBMITTED
+          : statuses.some((item) => item.state === MilestoneStakeholderState.IN_PROGRESS || item.state === MilestoneStakeholderState.BLOCKED)
+            ? MilestoneStatus.IN_PROGRESS
+            : MilestoneStatus.NOT_STARTED;
+    await tx.milestone.update({ where: { id: milestoneId }, data: { status: summary, submittedAt: summary === MilestoneStatus.SUBMITTED ? new Date() : undefined, approvedAt: summary === MilestoneStatus.APPROVED ? new Date() : null } });
+    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: milestone.startupId, entityType: 'Milestone', entityId: milestoneId, action: 'stakeholder_status_updated', summary: `${milestone.title}: ${lane.toLowerCase()} marked ${state.replaceAll('_', ' ').toLowerCase()}`, meta: { lane, from: before?.state ?? MilestoneStakeholderState.NOT_STARTED, to: state } }) });
+  });
+  refreshStartup(milestone.startupId);
+}
+
 export async function createPaymentAction(formData: FormData) {
   const startupId = requiredText(formData, 'startupId', 64);
   const session = await requireStartupAccess(startupId, 'payment:manage');
@@ -193,6 +242,23 @@ export async function createSupportAction(formData: FormData) {
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'SupportRequest', entityId: created.id, action: 'created', summary: `Requested support: ${created.title}` }) });
     return created;
   });
+  const startup = await prisma.startup.findUniqueOrThrow({
+    where: { id: startupId },
+    select: {
+      name: true,
+      assignments: {
+        where: { role: { in: [AssignmentRole.MENTOR, AssignmentRole.EXPERT] }, person: { isActive: true } },
+        select: { person: { select: { id: true, name: true, email: true } } },
+      },
+    },
+  });
+  await prisma.notification.createMany({
+    data: startup.assignments.map(({ person }) => {
+      const template = supportOpportunityTemplate({ mentorName: person.name, startupName: startup.name, requestTitle: request.title, description: request.description, url: `${APP_URL()}/support` });
+      return { recipientId: person.id, recipientEmail: person.email, kind: NotificationKind.SUPPORT_OPPORTUNITY, subject: template.subject, htmlBody: template.html, textBody: template.text, relatedEntityType: 'SupportRequest', relatedEntityId: request.id };
+    }),
+  });
+  revalidatePath('/notifications');
   refreshStartup(startupId);
   void request.id;
 }
@@ -224,13 +290,14 @@ export async function createPersonAction(formData: FormData) {
   const session = await requirePermission('people:manage');
   const email = requiredText(formData, 'email', 254).toLowerCase();
   const password = text(formData, 'password', 256);
-  if (!(password.length >= 12 && /[a-z]/.test(password) && /[A-Z]/.test(password) && /\d/.test(password) && /[^A-Za-z0-9]/.test(password))) {
-    throw new Error('Temporary password must have 12+ characters, uppercase, lowercase, a number and a symbol.');
-  }
+  if (!validPassword(password)) throw new Error('Temporary password must contain at least 6 characters.');
   const role = enumValue(Role, formData.get('role'), 'role');
   const person = await prisma.person.create({ data: { name: requiredText(formData, 'name', 160), email, phone: optionalText(formData, 'phone', 40), role, passwordHash: await hash(password, 12), mustChangePassword: true, founderOfStartupId: role === Role.FOUNDER ? optionalText(formData, 'founderOfStartupId', 64) : null } });
   await prisma.activityLog.create({ data: auditData({ actor: session.user, entityType: 'Person', entityId: person.id, action: 'created', summary: `Created ${role.replaceAll('_', ' ').toLowerCase()} account for ${person.name}` }) });
+  const template = accountWelcomeTemplate({ name: person.name, role: role.replaceAll('_', ' ').toLowerCase(), loginUrl: `${APP_URL()}/login` });
+  await prisma.notification.create({ data: { recipientId: person.id, recipientEmail: person.email, kind: NotificationKind.ACCOUNT_WELCOME, subject: template.subject, htmlBody: template.html, textBody: template.text, relatedEntityType: 'Person', relatedEntityId: person.id } });
   revalidatePath('/settings');
+  revalidatePath('/notifications');
   revalidatePath('/people');
   revalidatePath('/audit');
 }
@@ -246,6 +313,21 @@ export async function updatePersonAccessAction(formData: FormData) {
     await tx.person.update({ where: { id: personId }, data: { role, isActive } });
     if (!isActive) await tx.authSession.updateMany({ where: { personId, revokedAt: null }, data: { revokedAt: new Date() } });
     await tx.activityLog.create({ data: auditData({ actor: session.user, entityType: 'Person', entityId: personId, action: 'access_updated', summary: `${before.name}: access updated`, meta: { before: { role: before.role, isActive: before.isActive }, after: { role, isActive } } }) });
+  });
+  revalidatePath('/settings');
+  revalidatePath('/audit');
+}
+
+export async function resetPersonPasswordAction(formData: FormData) {
+  const session = await requirePermission('people:manage');
+  const personId = requiredText(formData, 'personId', 64);
+  const password = text(formData, 'password', 256);
+  if (!validPassword(password)) throw new Error('Password must contain at least 6 characters.');
+  const person = await prisma.person.findUniqueOrThrow({ where: { id: personId }, select: { name: true } });
+  await prisma.$transaction(async (tx) => {
+    await tx.person.update({ where: { id: personId }, data: { passwordHash: await hash(password, 12), mustChangePassword: false } });
+    await tx.authSession.updateMany({ where: { personId, revokedAt: null }, data: { revokedAt: new Date() } });
+    await tx.activityLog.create({ data: auditData({ actor: session.user, entityType: 'Person', entityId: personId, action: 'password_reset', summary: `${person.name}: password updated by administrator` }) });
   });
   revalidatePath('/settings');
   revalidatePath('/audit');
