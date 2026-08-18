@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { MilestoneStatus, ReviewDecision } from '@prisma/client';
+import { MilestoneStatus, ReviewDecision, Role } from '@prisma/client';
+import { redirect } from 'next/navigation';
 import { reviewMilestoneAction } from '@/app/actions/workflows';
 import { SubmitButton } from '@/components/ui/FormButtons';
 import { accessibleStartupWhere, hasPermission, requireSession } from '@/lib/auth';
@@ -10,6 +11,7 @@ const inputClass = 'h-11 rounded-input border bg-white px-3 text-sm outline-none
 
 export default async function ReviewsPage() {
   const auth = await requireSession();
+  if (auth.user.role === Role.INVESTOR) redirect('/portfolio');
   const scope = accessibleStartupWhere(auth.user);
   const canReview = hasPermission(auth.user.role, 'milestone:review');
   const milestones = await prisma.milestone.findMany({ where: { startup: scope, status: { in: [MilestoneStatus.SUBMITTED, MilestoneStatus.NEEDS_REVISION, MilestoneStatus.IN_PROGRESS] } }, include: { startup: { select: { name: true } }, reviews: { include: { reviewer: { select: { name: true } } }, orderBy: { createdAt: 'desc' }, take: 1 } }, orderBy: [{ dueDate: 'asc' }, { updatedAt: 'desc' }], take: 150 });

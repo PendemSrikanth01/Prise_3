@@ -1,0 +1,168 @@
+.shell {
+  --login-red: #ed1c24;
+  --login-red-dark: #c81018;
+  --login-ink: #171717;
+  --login-muted: #6e6e73;
+  display: grid;
+  min-height: 100svh;
+  grid-template-columns: minmax(0, 55fr) minmax(440px, 45fr);
+  background: #fff;
+  color: var(--login-ink);
+}
+
+.story {
+  position: sticky;
+  top: 0;
+  min-height: 100svh;
+  overflow: hidden;
+  background: #d9d8d2 url('/brand/campus-signin.jpg') center center / cover no-repeat;
+}
+
+.storyShade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgb(12 15 18 / 20%), transparent 38%, transparent 72%, rgb(12 15 18 / 10%)),
+    linear-gradient(180deg, rgb(8 10 12 / 5%), transparent 52%, rgb(8 10 12 / 32%));
+  pointer-events: none;
+}
+
+.wordmark {
+  position: absolute;
+  left: 50%;
+  top: 51%;
+  width: max-content;
+  transform: translate(-50%, -50%);
+  color: #f32128;
+  font-family: Georgia, 'Times New Roman', serif;
+  padding: .15em .28em .2em;
+  border: 1px solid rgb(255 255 255 / 54%);
+  border-radius: 22px;
+  background: rgb(255 255 255 / 82%);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 20%);
+  backdrop-filter: blur(14px) saturate(120%);
+  font-size: clamp(4.2rem, 7.2vw, 8.2rem);
+  font-weight: 700;
+  letter-spacing: -.065em;
+  line-height: .9;
+  text-shadow:
+    0 2px 0 #ff6e64,
+    0 5px 0 #a80f17,
+    0 8px 12px rgb(52 6 4 / 34%);
+  user-select: none;
+}
+
+.storyCaption {
+  position: absolute;
+  bottom: 42px;
+  left: 48px;
+  max-width: 380px;
+  margin: 0;
+  color: rgb(255 255 255 / 78%);
+  font-size: .78rem;
+  font-weight: 600;
+  letter-spacing: .1em;
+  line-height: 1.6;
+  text-transform: uppercase;
+}
+
+.access {
+  display: flex;
+  min-height: 100svh;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(32px, 5vw, 84px);
+  background: #fff;
+}
+
+.access :global(:focus-visible) {
+  outline-color: rgb(237 28 36 / 38%);
+}
+
+.accessInner {
+  width: min(100%, 590px);
+}
+
+.organisationLogo {
+  width: min(100%, 560px);
+  margin-bottom: clamp(48px, 7vh, 76px);
+}
+
+.footer {
+  display: flex;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 44px;
+  padding-top: 26px;
+  border-top: 1px solid #ececef;
+  color: #77777f;
+  font-size: .82rem;
+}
+
+@media (max-width: 860px) {
+  .shell {
+    display: block;
+  }
+
+  .story {
+    position: relative;
+    min-height: 31svh;
+    background-position: center 54%;
+  }
+
+  .wordmark {
+    top: 52%;
+    border-radius: 15px;
+    font-size: clamp(2.9rem, 14vw, 5rem);
+  }
+
+  .storyCaption {
+    display: none;
+  }
+
+  .access {
+    min-height: 69svh;
+    align-items: flex-start;
+    padding: 30px 22px 36px;
+  }
+
+  .organisationLogo {
+    width: min(100%, 420px);
+    margin-bottom: 34px;
+  }
+}
+
+@media (min-width: 861px) and (max-height: 760px) {
+  .access {
+    padding-block: 28px;
+  }
+
+  .organisationLogo {
+    margin-bottom: 36px;
+  }
+
+  .footer {
+    margin-top: 30px;
+    padding-top: 20px;
+  }
+}
+
+@media (max-width: 420px) {
+  .story {
+    min-height: 28svh;
+  }
+
+  .access {
+    min-height: 72svh;
+    padding-inline: 20px;
+  }
+
+  .organisationLogo {
+    margin-bottom: 28px;
+  }
+
+  .footer {
+    margin-top: 34px;
+    font-size: .75rem;
+  }
+}

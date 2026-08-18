@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { TaskStatus, SupportRequestStatus } from '@prisma/client';
+import { TaskStatus, SupportRequestStatus, Role } from '@prisma/client';
+import { redirect } from 'next/navigation';
 import { accessibleStartupWhere, requireSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
@@ -7,6 +8,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function WorkPage() {
   const session = await requireSession();
+  if (session.user.role === Role.INVESTOR) redirect('/portfolio');
   const scope = accessibleStartupWhere(session.user);
   const [tasks, requests] = await Promise.all([
     prisma.task.findMany({ where: { startup: scope }, orderBy: [{ status: 'asc' }, { dueDate: 'asc' }], take: 100, include: { startup: { select: { id: true, name: true } }, assignee: { select: { name: true } } } }),

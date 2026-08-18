@@ -1,4 +1,6 @@
 import { EmptyPanel, PageIntro } from '@/components/ui/PageIntro';
+import { Role } from '@prisma/client';
+import { redirect } from 'next/navigation';
 import { accessibleStartupWhere, requireSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
@@ -6,7 +8,8 @@ export const dynamic = 'force-dynamic';
 
 export default async function PeoplePage() {
   const session = await requireSession();
-  const hasGlobalDirectory = ['PROGRAM_LEAD', 'PROGRAM_TEAM', 'INVESTOR'].includes(session.user.role);
+  if (session.user.role === Role.INVESTOR) redirect('/portfolio');
+  const hasGlobalDirectory = ['PROGRAM_LEAD', 'PROGRAM_TEAM'].includes(session.user.role);
   const startupIds = hasGlobalDirectory ? [] : (await prisma.startup.findMany({
     where: accessibleStartupWhere(session.user),
     select: { id: true },
@@ -17,6 +20,7 @@ export default async function PeoplePage() {
       OR: [
         { id: session.user.id },
         { founderOfStartupId: { in: startupIds } },
+        { startupMemberships: { some: { startupId: { in: startupIds }, isActive: true } } },
         { assignments: { some: { startupId: { in: startupIds } } } },
       ],
     },

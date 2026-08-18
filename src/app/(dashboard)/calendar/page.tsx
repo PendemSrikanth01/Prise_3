@@ -1,4 +1,5 @@
 import { Role, SessionType } from '@prisma/client';
+import { redirect } from 'next/navigation';
 import { CalendarView } from '@/components/calendar/CalendarView';
 import { accessibleStartupWhere, hasPermission, requireSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
@@ -7,6 +8,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function CalendarPage() {
   const auth = await requireSession();
+  if (auth.user.role === Role.INVESTOR) redirect('/portfolio');
   const startupScope = accessibleStartupWhere(auth.user);
   const isProgram = auth.user.role === Role.PROGRAM_LEAD || auth.user.role === Role.PROGRAM_TEAM;
   const canManageSessions = hasPermission(auth.user.role, 'session:manage');

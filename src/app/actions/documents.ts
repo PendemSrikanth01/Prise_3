@@ -1,14 +1,47 @@
 'use server';
 
-import { DeliverableStatus, MilestoneStakeholderLane, MilestoneStakeholderState, MilestoneStatus, Role } from '@prisma/client';
+import { DeliverableStatus, MilestoneStakeholderLane, MilestoneStakeholderState, OnboardingStatus, Role } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { auditData } from '@/lib/audit';
 import { enumValue, optionalText, requiredText } from '@/lib/form';
-import { hasPermission, requirePermission, requireSession, requireStartupAccess } from '@/lib/auth';
+import { accessibleStartupWhere, hasPermission, hasStartupPermission, isProgramRole, requirePermission, requireSession, requireStartupAccess, startupMemberRole } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { removePrivateUpload, storePrivateUpload } from '@/lib/uploads';
+import { setMilestoneLaneState } from '@/lib/milestone-state';
 
 export type UploadState = { error?: string; success?: string } | undefined;
+
+export async function uploadOnboardingDocumentAction(_: UploadState, formData: FormData): Promise<UploadState> {
+  let storedKey: string | null = null;
+  try {
+    const session = await requireSession({ allowPendingApplication: true });
+    if (session.user.role !== Role.FOUNDER) return { error: 'Only startup members can upload onboarding files.' };
+    const onboardingItemId = requiredText(formData, 'onboardingItemId', 64);
+    const item = await prisma.onboardingItem.findFirst({
+      where: { id: onboardingItemId, startup: accessibleStartupWhere(session.user) },
+      select: { id: true, type: true, startupId: true },
+    });
+    if (!item) return { error: 'Onboarding item not found.' };
+    const memberRole = await startupMemberRole(item.startupId, session.user.id);
+    if (!hasStartupPermission(session.user.role, 'deliverable:upload', memberRole)) return { error: 'Your startup role cannot upload onboarding files.' };
+    const file = formData.get('file');
+    if (!(file instanceof File)) return { error: 'Choose a file to upload.' };
+    const stored = await storePrivateUpload(file);
+    storedKey = stored.storageKey;
+    const latest = await prisma.onboardingDocument.aggregate({ where: { onboardingItemId, name: file.name }, _max: { version: true } });
+    await prisma.$transaction(async (tx) => {
+      const document = await tx.onboardingDocument.create({ data: { onboardingItemId, uploaderId: session.user.id, name: file.name.slice(0, 240), storageKey: stored.storageKey, mimeType: stored.mimeType, sizeBytes: stored.sizeBytes, version: (latest._max.version ?? 0) + 1, description: optionalText(formData, 'description', 800) } });
+      await tx.onboardingItem.update({ where: { id: onboardingItemId }, data: { status: OnboardingStatus.SUBMITTED, submittedAt: new Date(), approvedAt: null } });
+      await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: item.startupId, entityType: 'OnboardingDocument', entityId: document.id, action: 'uploaded', summary: `${item.type.replaceAll('_', ' ')}: uploaded ${file.name}` }) });
+    });
+    revalidatePath('/application');
+    refreshDocuments(item.startupId);
+    return { success: `${file.name} was submitted for review.` };
+  } catch (error) {
+    if (storedKey) await removePrivateUpload(storedKey);
+    return { error: error instanceof Error ? error.message : 'Upload failed.' };
+  }
+}
 
 function refreshDocuments(startupId: string) {
   revalidatePath('/');
@@ -39,13 +72,8 @@ export async function uploadDeliverableAction(_: UploadState, formData: FormData
     const deliverable = await prisma.$transaction(async (tx) => {
       const stakeholderLane = laneForRole(session.user.role);
       const created = await tx.deliverable.create({ data: { milestoneId, uploaderId: session.user.id, name: file.name.slice(0, 240), storageKey: stored.storageKey, mimeType: stored.mimeType, sizeBytes: stored.sizeBytes, version: (latest._max.version ?? 0) + 1, status: DeliverableStatus.SUBMITTED, description: optionalText(formData, 'description', 800), submittedAt: new Date(), stakeholderLane } });
-      await tx.milestone.update({ where: { id: milestoneId }, data: { status: MilestoneStatus.SUBMITTED, submittedAt: new Date() } });
       if (stakeholderLane) {
-        await tx.milestoneStakeholderStatus.upsert({
-          where: { milestoneId_lane: { milestoneId, lane: stakeholderLane } },
-          update: { state: stakeholderLane === MilestoneStakeholderLane.STARTUP ? MilestoneStakeholderState.SUBMITTED : MilestoneStakeholderState.IN_PROGRESS, updatedById: session.user.id },
-          create: { milestoneId, lane: stakeholderLane, state: stakeholderLane === MilestoneStakeholderLane.STARTUP ? MilestoneStakeholderState.SUBMITTED : MilestoneStakeholderState.IN_PROGRESS, updatedById: session.user.id },
-        });
+        await setMilestoneLaneState(tx, { milestoneId, lane: stakeholderLane, state: stakeholderLane === MilestoneStakeholderLane.STARTUP ? MilestoneStakeholderState.SUBMITTED : MilestoneStakeholderState.IN_PROGRESS, updatedById: session.user.id });
       }
       await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: milestone.startupId, entityType: 'Deliverable', entityId: created.id, action: 'uploaded', summary: `${milestone.title}: uploaded ${file.name}` }) });
       return created;
@@ -69,15 +97,7 @@ export async function reviewDeliverableAction(formData: FormData) {
     await tx.deliverable.update({ where: { id: deliverableId }, data: { status, reviewerId: session.user.id, feedback: optionalText(formData, 'feedback', 1500), reviewedAt: new Date() } });
     const lane = laneForRole(session.user.role);
     if (lane && lane !== MilestoneStakeholderLane.STARTUP && status !== DeliverableStatus.ARCHIVED) {
-      await tx.milestoneStakeholderStatus.upsert({
-        where: { milestoneId_lane: { milestoneId: deliverable.milestoneId, lane } },
-        update: { state: status === DeliverableStatus.APPROVED ? MilestoneStakeholderState.APPROVED : MilestoneStakeholderState.NEEDS_REVISION, note: optionalText(formData, 'feedback', 1500), updatedById: session.user.id },
-        create: { milestoneId: deliverable.milestoneId, lane, state: status === DeliverableStatus.APPROVED ? MilestoneStakeholderState.APPROVED : MilestoneStakeholderState.NEEDS_REVISION, note: optionalText(formData, 'feedback', 1500), updatedById: session.user.id },
-      });
-      const statuses = await tx.milestoneStakeholderStatus.findMany({ where: { milestoneId: deliverable.milestoneId }, select: { lane: true, state: true } });
-      const programApproved = statuses.some((item) => item.lane === MilestoneStakeholderLane.PROGRAM && item.state === MilestoneStakeholderState.APPROVED);
-      const needsRevision = statuses.some((item) => item.state === MilestoneStakeholderState.NEEDS_REVISION);
-      await tx.milestone.update({ where: { id: deliverable.milestoneId }, data: { status: programApproved ? MilestoneStatus.APPROVED : needsRevision ? MilestoneStatus.NEEDS_REVISION : MilestoneStatus.SUBMITTED, reviewerId: session.user.id, approvedAt: programApproved ? new Date() : null } });
+      await setMilestoneLaneState(tx, { milestoneId: deliverable.milestoneId, lane, state: status === DeliverableStatus.APPROVED ? MilestoneStakeholderState.APPROVED : MilestoneStakeholderState.NEEDS_REVISION, note: optionalText(formData, 'feedback', 1500), updatedById: session.user.id });
     }
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: deliverable.milestone.startupId, entityType: 'Deliverable', entityId: deliverableId, action: 'reviewed', summary: `${deliverable.milestone.title}: document marked ${status.replaceAll('_', ' ').toLowerCase()}` }) });
   });
@@ -96,4 +116,47 @@ export async function archiveDeliverableAction(formData: FormData) {
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: deliverable.milestone.startupId, entityType: 'Deliverable', entityId: deliverableId, action: 'archived', summary: `Archived document: ${deliverable.name}` }) });
   });
   refreshDocuments(deliverable.milestone.startupId);
+}
+
+export async function uploadProgramEvidenceAction(_: UploadState, formData: FormData): Promise<UploadState> {
+  let storedKey: string | null = null;
+  try {
+    const session = await requireSession();
+    if (!isProgramRole(session.user.role)) return { error: 'Only the program team can upload program evidence.' };
+    const actionId = requiredText(formData, 'programActionId', 64);
+    const subtaskId = optionalText(formData, 'subtaskId', 64);
+    const action = await prisma.programAction.findUniqueOrThrow({ where: { id: actionId }, select: { id: true, title: true, subtasks: { where: subtaskId ? { id: subtaskId } : { id: '__none__' }, select: { id: true } } } });
+    if (subtaskId && action.subtasks.length === 0) return { error: 'That checklist item does not belong to the selected action.' };
+    const file = formData.get('file');
+    if (!(file instanceof File)) return { error: 'Choose a file to upload.' };
+    const stored = await storePrivateUpload(file);
+    storedKey = stored.storageKey;
+    const latest = await prisma.programActionEvidence.aggregate({ where: { actionId, name: file.name }, _max: { version: true } });
+    const evidence = await prisma.$transaction(async (tx) => {
+      const created = await tx.programActionEvidence.create({ data: { actionId, subtaskId, uploaderId: session.user.id, name: file.name.slice(0, 240), storageKey: stored.storageKey, mimeType: stored.mimeType, sizeBytes: stored.sizeBytes, version: (latest._max.version ?? 0) + 1, description: optionalText(formData, 'description', 800) } });
+      await tx.activityLog.create({ data: auditData({ actor: session.user, entityType: 'ProgramActionEvidence', entityId: created.id, action: 'uploaded', summary: `${action.title}: uploaded ${file.name}` }) });
+      return created;
+    });
+    refreshDocuments('');
+    return { success: `${evidence.name} was added to the program action.` };
+  } catch (error) {
+    if (storedKey) await removePrivateUpload(storedKey);
+    return { error: error instanceof Error ? error.message : 'Upload failed.' };
+  }
+}
+
+export async function reviewProgramEvidenceAction(formData: FormData) {
+  const session = await requireSession();
+  if (!isProgramRole(session.user.role)) throw new Error('Forbidden');
+  const id = requiredText(formData, 'programEvidenceId', 64);
+  const status = enumValue(DeliverableStatus, formData.get('status'), 'status');
+  const decisions: DeliverableStatus[] = [DeliverableStatus.APPROVED, DeliverableStatus.NEEDS_REVISION, DeliverableStatus.ARCHIVED];
+  if (!decisions.includes(status)) throw new Error('Select a valid decision.');
+  const evidence = await prisma.programActionEvidence.findUniqueOrThrow({ where: { id }, include: { action: { select: { title: true } } } });
+  await prisma.$transaction(async (tx) => {
+    await tx.programActionEvidence.update({ where: { id }, data: { status, reviewerId: session.user.id, feedback: optionalText(formData, 'feedback', 1500), reviewedAt: new Date() } });
+    await tx.activityLog.create({ data: auditData({ actor: session.user, entityType: 'ProgramActionEvidence', entityId: id, action: 'reviewed', summary: `${evidence.action.title}: evidence marked ${status.replaceAll('_', ' ').toLowerCase()}` }) });
+  });
+  revalidatePath('/program');
+  revalidatePath('/documents');
 }

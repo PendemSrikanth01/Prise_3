@@ -3,15 +3,16 @@
 import { hash } from 'bcryptjs';
 import {
   AssignmentRole, MilestoneStakeholderLane, MilestoneStakeholderState, MilestoneStatus, NotificationKind, OnboardingStatus, PaymentStatus, Priority, ReviewDecision,
-  Role, StartupStatus, SupportRequestStatus, TaskStatus,
+  Role, StartupMemberRole, StartupStatus, SupportRequestStatus, TaskStatus,
 } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { auditData } from '@/lib/audit';
 import { enumValue, optionalDate, optionalText, positiveMoney, requiredText, text } from '@/lib/form';
-import { requirePermission, requireSession, requireStartupAccess } from '@/lib/auth';
+import { canDeleteTaskRecord, canEditTaskRecord, canManageStartupMembers, isProgramRole, requirePermission, requireSession, requireStartupAccess, startupMemberRole } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { validPassword } from '@/lib/password';
 import { accountWelcomeTemplate, supportOpportunityTemplate } from '@/lib/notification-templates';
+import { setMilestoneLaneState } from '@/lib/milestone-state';
 
 const APP_URL = () => process.env.APP_URL || 'http://127.0.0.1:3010';
 
@@ -21,6 +22,70 @@ function refreshStartup(startupId: string) {
   revalidatePath(`/startups/${startupId}`);
   revalidatePath('/work');
   revalidatePath('/audit');
+}
+
+export async function reviewStartupApplicationAction(formData: FormData) {
+  const session = await requirePermission('onboarding:review');
+  const startupId = requiredText(formData, 'startupId', 64);
+  const decision = requiredText(formData, 'decision', 20);
+  if (decision !== 'APPROVE' && decision !== 'REJECT') throw new Error('Choose approve or reject.');
+  const startup = await prisma.startup.findUniqueOrThrow({ where: { id: startupId }, select: { name: true, status: true } });
+  if (startup.status !== StartupStatus.APPLICATION_PENDING && startup.status !== StartupStatus.REJECTED) throw new Error('This application has already been processed.');
+  await prisma.$transaction(async (tx) => {
+    if (decision === 'APPROVE') {
+      const existingMilestones = await tx.milestone.count({ where: { startupId } });
+      if (!existingMilestones) {
+        const templates = await tx.milestoneTemplate.findMany({ where: { isActive: true, scope: 'STARTUP' }, orderBy: [{ phase: 'asc' }, { title: 'asc' }], take: 10 });
+        if (templates.length) await tx.milestone.createMany({ data: templates.map((template) => ({ startupId, templateId: template.id, phase: template.phase, title: template.title, keyActivity: template.keyActivity, deliverable: template.deliverable, effort: template.effort })) });
+      }
+      await tx.startup.update({ where: { id: startupId }, data: { status: StartupStatus.ACTIVE, healthStatus: optionalText(formData, 'remarks', 1000) } });
+    } else {
+      await tx.startup.update({ where: { id: startupId }, data: { status: StartupStatus.REJECTED, healthStatus: requiredText(formData, 'remarks', 1000) } });
+    }
+    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'Startup', entityId: startupId, action: decision === 'APPROVE' ? 'application_approved' : 'application_rejected', summary: `${startup.name}: application ${decision === 'APPROVE' ? 'approved' : 'rejected'}`, meta: { from: startup.status, to: decision === 'APPROVE' ? StartupStatus.ACTIVE : StartupStatus.REJECTED } }) });
+  });
+  refreshStartup(startupId);
+  revalidatePath('/application');
+}
+
+export async function createStartupMemberAction(formData: FormData) {
+  const session = await requireSession();
+  const startupId = requiredText(formData, 'startupId', 64);
+  await requireStartupAccess(startupId);
+  const membershipRole = await startupMemberRole(startupId, session.user.id);
+  if (!canManageStartupMembers(session.user.role, membershipRole)) throw new Error('Only startup owners, admins, or program staff can add members.');
+  const email = requiredText(formData, 'email', 254).toLowerCase();
+  if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Enter a valid email address.');
+  const password = requiredText(formData, 'password', 128);
+  if (!validPassword(password)) throw new Error('Password must contain at least 6 characters.');
+  const role = enumValue(StartupMemberRole, formData.get('memberRole'), 'memberRole');
+  if (role === StartupMemberRole.OWNER) throw new Error('Ownership transfer is not available here.');
+  await prisma.$transaction(async (tx) => {
+    let person = await tx.person.findUnique({ where: { email }, select: { id: true, role: true } });
+    if (person && person.role !== Role.FOUNDER) throw new Error('This email belongs to a non-startup account.');
+    if (!person) person = await tx.person.create({ data: { name: requiredText(formData, 'name', 160), email, role: Role.FOUNDER, passwordHash: await hash(password, 12), mustChangePassword: true } });
+    const membership = await tx.startupMembership.upsert({ where: { startupId_personId: { startupId, personId: person.id } }, update: { role, isActive: true }, create: { startupId, personId: person.id, role } });
+    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'StartupMembership', entityId: membership.id, action: 'member_added', summary: `Added ${email} as ${role.toLowerCase()}` }) });
+  });
+  refreshStartup(startupId);
+}
+
+export async function updateStartupMemberAction(formData: FormData) {
+  const session = await requireSession();
+  const membershipId = requiredText(formData, 'membershipId', 64);
+  const membership = await prisma.startupMembership.findUniqueOrThrow({ where: { id: membershipId }, select: { startupId: true, personId: true, role: true, person: { select: { email: true } } } });
+  await requireStartupAccess(membership.startupId);
+  const actorMembershipRole = await startupMemberRole(membership.startupId, session.user.id);
+  if (!canManageStartupMembers(session.user.role, actorMembershipRole)) throw new Error('Only startup owners, admins, or program staff can manage members.');
+  const role = enumValue(StartupMemberRole, formData.get('memberRole'), 'memberRole');
+  const isActive = formData.get('isActive') === 'on';
+  if (membership.role === StartupMemberRole.OWNER && (!isActive || role !== StartupMemberRole.OWNER)) throw new Error('Transfer ownership before changing the owner account.');
+  if (membership.personId === session.user.id && !isActive) throw new Error('You cannot deactivate your own membership.');
+  await prisma.$transaction(async (tx) => {
+    await tx.startupMembership.update({ where: { id: membershipId }, data: { role, isActive } });
+    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: membership.startupId, entityType: 'StartupMembership', entityId: membershipId, action: 'member_updated', summary: `${membership.person.email}: ${role.toLowerCase()} ${isActive ? 'active' : 'inactive'}` }) });
+  });
+  refreshStartup(membership.startupId);
 }
 
 export async function updateStartupAction(formData: FormData) {
@@ -97,8 +162,13 @@ export async function createTaskAction(formData: FormData) {
     const validMilestone = await prisma.milestone.count({ where: { id: milestoneId, startupId } });
     if (!validMilestone) throw new Error('Milestone does not belong to this startup.');
   }
+  const requestedAssigneeId = optionalText(formData, 'assigneeId', 64) ?? (session.user.role === Role.FOUNDER ? session.user.id : null);
+  if (requestedAssigneeId) {
+    const validAssignee = await prisma.person.count({ where: { id: requestedAssigneeId, isActive: true, OR: [{ founderOfStartupId: startupId }, { startupMemberships: { some: { startupId, isActive: true } } }, { assignments: { some: { startupId } } }, { role: { in: [Role.PROGRAM_LEAD, Role.PROGRAM_TEAM] } }] } });
+    if (!validAssignee) throw new Error('Assignee is not part of this startup team.');
+  }
   const task = await prisma.$transaction(async (tx) => {
-    const created = await tx.task.create({ data: { startupId, milestoneId, title: requiredText(formData, 'title', 220), description: optionalText(formData, 'description', 2000), priority: enumValue(Priority, formData.get('priority'), 'priority'), dueDate: optionalDate(formData, 'dueDate'), assigneeId: optionalText(formData, 'assigneeId', 64) } });
+    const created = await tx.task.create({ data: { startupId, milestoneId, title: requiredText(formData, 'title', 220), description: optionalText(formData, 'description', 2000), priority: enumValue(Priority, formData.get('priority'), 'priority'), dueDate: optionalDate(formData, 'dueDate'), assigneeId: requestedAssigneeId, createdById: session.user.id } });
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'Task', entityId: created.id, action: 'created', summary: `Created task: ${created.title}` }) });
     return created;
   });
@@ -111,9 +181,16 @@ export async function updateTaskAction(formData: FormData) {
   const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
   if (!task.startupId) throw new Error('Program-level task editing is not enabled here.');
   const session = await requireStartupAccess(task.startupId, 'task:manage');
+  if (!canEditTaskRecord(session.user, task)) throw new Error('Only the task creator, assignee, or program team can update this task.');
   const status = enumValue(TaskStatus, formData.get('status'), 'status');
+  const requestedAssigneeId = optionalText(formData, 'assigneeId', 64);
   await prisma.$transaction(async (tx) => {
-    const updated = await tx.task.update({ where: { id: taskId }, data: { title: requiredText(formData, 'title', 220), description: optionalText(formData, 'description', 2000), status, priority: enumValue(Priority, formData.get('priority'), 'priority'), dueDate: optionalDate(formData, 'dueDate'), blockedReason: status === TaskStatus.BLOCKED ? optionalText(formData, 'blockedReason', 1000) : null, completedAt: status === TaskStatus.DONE ? task.completedAt ?? new Date() : null } });
+    const canChangeDefinition = isProgramRole(session.user.role) || task.createdById === session.user.id;
+    if (canChangeDefinition && requestedAssigneeId) {
+      const validAssignee = await tx.person.count({ where: { id: requestedAssigneeId, isActive: true, OR: [{ founderOfStartupId: task.startupId! }, { startupMemberships: { some: { startupId: task.startupId!, isActive: true } } }, { assignments: { some: { startupId: task.startupId! } } }, { role: { in: [Role.PROGRAM_LEAD, Role.PROGRAM_TEAM] } }] } });
+      if (!validAssignee) throw new Error('Assignee is not part of this startup team.');
+    }
+    const updated = await tx.task.update({ where: { id: taskId }, data: { ...(canChangeDefinition ? { title: requiredText(formData, 'title', 220), description: optionalText(formData, 'description', 2000), priority: enumValue(Priority, formData.get('priority'), 'priority'), dueDate: optionalDate(formData, 'dueDate'), assigneeId: requestedAssigneeId } : {}), status, blockedReason: status === TaskStatus.BLOCKED ? optionalText(formData, 'blockedReason', 1000) : null, completedAt: status === TaskStatus.DONE ? task.completedAt ?? new Date() : null } });
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: task.startupId, entityType: 'Task', entityId: taskId, action: 'updated', summary: `Updated task: ${updated.title}`, meta: { from: task.status, to: status } }) });
   });
   refreshStartup(task.startupId);
@@ -124,6 +201,7 @@ export async function deleteTaskAction(formData: FormData) {
   const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
   if (!task.startupId) throw new Error('Program-level task deletion is not enabled here.');
   const session = await requireStartupAccess(task.startupId, 'task:manage');
+  if (!canDeleteTaskRecord(session.user, task)) throw new Error('Only the task creator or program team can delete this task.');
   await prisma.$transaction(async (tx) => {
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: task.startupId, entityType: 'Task', entityId: taskId, action: 'deleted', summary: `Deleted task: ${task.title}` }) });
     await tx.task.delete({ where: { id: taskId } });
@@ -136,11 +214,12 @@ export async function reviewMilestoneAction(formData: FormData) {
   const milestone = await prisma.milestone.findUniqueOrThrow({ where: { id: milestoneId }, select: { id: true, startupId: true, title: true, status: true } });
   const session = await requireStartupAccess(milestone.startupId, 'milestone:review');
   const decision = enumValue(ReviewDecision, formData.get('decision'), 'decision');
-  const status = decision === ReviewDecision.APPROVED ? MilestoneStatus.APPROVED : decision === ReviewDecision.REVISION_REQUESTED ? MilestoneStatus.NEEDS_REVISION : milestone.status;
+  const lane = session.user.role === Role.MENTOR ? MilestoneStakeholderLane.MENTOR : MilestoneStakeholderLane.PROGRAM;
+  const laneState = decision === ReviewDecision.APPROVED ? MilestoneStakeholderState.APPROVED : decision === ReviewDecision.REVISION_REQUESTED ? MilestoneStakeholderState.NEEDS_REVISION : MilestoneStakeholderState.IN_PROGRESS;
   await prisma.$transaction(async (tx) => {
     await tx.milestoneReview.create({ data: { milestoneId, reviewerId: session.user.id, decision, feedback: optionalText(formData, 'feedback', 2500) } });
-    await tx.milestone.update({ where: { id: milestoneId }, data: { reviewerId: session.user.id, status, approvedAt: status === MilestoneStatus.APPROVED ? new Date() : null } });
-    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: milestone.startupId, entityType: 'Milestone', entityId: milestoneId, action: 'reviewed', summary: `${milestone.title}: ${decision.replaceAll('_', ' ')}`, meta: { from: milestone.status, to: status } }) });
+    const status = await setMilestoneLaneState(tx, { milestoneId, lane, state: laneState, updatedById: session.user.id, note: optionalText(formData, 'feedback', 2500) });
+    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: milestone.startupId, entityType: 'Milestone', entityId: milestoneId, action: 'reviewed', summary: `${milestone.title}: ${decision.replaceAll('_', ' ')}`, meta: { from: milestone.status, to: status, lane } }) });
   });
   refreshStartup(milestone.startupId);
 }
@@ -168,23 +247,7 @@ export async function updateMilestoneStakeholderStatusAction(formData: FormData)
   if (!laneStates[lane].includes(state)) throw new Error('That status is not available for this role.');
   await prisma.$transaction(async (tx) => {
     const before = await tx.milestoneStakeholderStatus.findUnique({ where: { milestoneId_lane: { milestoneId, lane } }, select: { state: true } });
-    await tx.milestoneStakeholderStatus.upsert({
-      where: { milestoneId_lane: { milestoneId, lane } },
-      update: { state, note: optionalText(formData, 'note', 1000), updatedById: session.user.id },
-      create: { milestoneId, lane, state, note: optionalText(formData, 'note', 1000), updatedById: session.user.id },
-    });
-    const statuses = await tx.milestoneStakeholderStatus.findMany({ where: { milestoneId }, select: { lane: true, state: true } });
-    const stateByLane = new Map(statuses.map((item) => [item.lane, item.state]));
-    const summary = stateByLane.get(MilestoneStakeholderLane.PROGRAM) === MilestoneStakeholderState.APPROVED
-      ? MilestoneStatus.APPROVED
-      : statuses.some((item) => item.state === MilestoneStakeholderState.NEEDS_REVISION)
-        ? MilestoneStatus.NEEDS_REVISION
-        : stateByLane.get(MilestoneStakeholderLane.STARTUP) === MilestoneStakeholderState.SUBMITTED
-          ? MilestoneStatus.SUBMITTED
-          : statuses.some((item) => item.state === MilestoneStakeholderState.IN_PROGRESS || item.state === MilestoneStakeholderState.BLOCKED)
-            ? MilestoneStatus.IN_PROGRESS
-            : MilestoneStatus.NOT_STARTED;
-    await tx.milestone.update({ where: { id: milestoneId }, data: { status: summary, submittedAt: summary === MilestoneStatus.SUBMITTED ? new Date() : undefined, approvedAt: summary === MilestoneStatus.APPROVED ? new Date() : null } });
+    await setMilestoneLaneState(tx, { milestoneId, lane, state, updatedById: session.user.id, note: optionalText(formData, 'note', 1000) });
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: milestone.startupId, entityType: 'Milestone', entityId: milestoneId, action: 'stakeholder_status_updated', summary: `${milestone.title}: ${lane.toLowerCase()} marked ${state.replaceAll('_', ' ').toLowerCase()}`, meta: { lane, from: before?.state ?? MilestoneStakeholderState.NOT_STARTED, to: state } }) });
   });
   refreshStartup(milestone.startupId);
@@ -292,14 +355,51 @@ export async function createPersonAction(formData: FormData) {
   const password = text(formData, 'password', 256);
   if (!validPassword(password)) throw new Error('Temporary password must contain at least 6 characters.');
   const role = enumValue(Role, formData.get('role'), 'role');
-  const person = await prisma.person.create({ data: { name: requiredText(formData, 'name', 160), email, phone: optionalText(formData, 'phone', 40), role, passwordHash: await hash(password, 12), mustChangePassword: true, founderOfStartupId: role === Role.FOUNDER ? optionalText(formData, 'founderOfStartupId', 64) : null } });
-  await prisma.activityLog.create({ data: auditData({ actor: session.user, entityType: 'Person', entityId: person.id, action: 'created', summary: `Created ${role.replaceAll('_', ' ').toLowerCase()} account for ${person.name}` }) });
+  const startupId = role === Role.FOUNDER ? optionalText(formData, 'founderOfStartupId', 64) : null;
+  const passwordHash = await hash(password, 12);
+  const person = await prisma.$transaction(async (tx) => {
+    const hasOwner = startupId ? await tx.startupMembership.count({ where: { startupId, role: StartupMemberRole.OWNER, isActive: true } }) : 0;
+    const created = await tx.person.create({ data: { name: requiredText(formData, 'name', 160), email, phone: optionalText(formData, 'phone', 40), role, passwordHash, mustChangePassword: true, founderOfStartupId: startupId && !hasOwner ? startupId : null } });
+    if (startupId) await tx.startupMembership.create({ data: { startupId, personId: created.id, role: hasOwner ? StartupMemberRole.MEMBER : StartupMemberRole.OWNER } });
+    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'Person', entityId: created.id, action: 'created', summary: `Created ${role.replaceAll('_', ' ').toLowerCase()} account for ${created.name}` }) });
+    return created;
+  });
   const template = accountWelcomeTemplate({ name: person.name, role: role.replaceAll('_', ' ').toLowerCase(), loginUrl: `${APP_URL()}/login` });
   await prisma.notification.create({ data: { recipientId: person.id, recipientEmail: person.email, kind: NotificationKind.ACCOUNT_WELCOME, subject: template.subject, htmlBody: template.html, textBody: template.text, relatedEntityType: 'Person', relatedEntityId: person.id } });
   revalidatePath('/settings');
   revalidatePath('/notifications');
   revalidatePath('/people');
   revalidatePath('/audit');
+}
+
+export async function shareStartupWithInvestorAction(formData: FormData) {
+  const session = await requirePermission('people:manage');
+  const startupId = requiredText(formData, 'startupId', 64);
+  const investorId = requiredText(formData, 'investorId', 64);
+  const [startup, investor] = await Promise.all([
+    prisma.startup.findUniqueOrThrow({ where: { id: startupId }, select: { name: true } }),
+    prisma.person.findUniqueOrThrow({ where: { id: investorId }, select: { name: true, role: true, isActive: true } }),
+  ]);
+  if (investor.role !== Role.INVESTOR || !investor.isActive) throw new Error('Choose an active investor account.');
+  const canViewDocuments = formData.get('canViewDocuments') === 'on';
+  await prisma.$transaction(async (tx) => {
+    const share = await tx.investorStartupShare.upsert({ where: { startupId_investorId: { startupId, investorId } }, update: { canViewDocuments }, create: { startupId, investorId, canViewDocuments } });
+    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'InvestorStartupShare', entityId: share.id, action: 'shared', summary: `Shared approved ${startup.name} progress with ${investor.name}`, meta: { canViewDocuments } }) });
+  });
+  revalidatePath('/settings');
+  revalidatePath('/portfolio');
+}
+
+export async function removeInvestorShareAction(formData: FormData) {
+  const session = await requirePermission('people:manage');
+  const shareId = requiredText(formData, 'shareId', 64);
+  const share = await prisma.investorStartupShare.findUniqueOrThrow({ where: { id: shareId }, include: { startup: { select: { name: true } }, investor: { select: { name: true } } } });
+  await prisma.$transaction(async (tx) => {
+    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: share.startupId, entityType: 'InvestorStartupShare', entityId: share.id, action: 'unshared', summary: `Removed ${share.investor.name}'s access to ${share.startup.name}` }) });
+    await tx.investorStartupShare.delete({ where: { id: share.id } });
+  });
+  revalidatePath('/settings');
+  revalidatePath('/portfolio');
 }
 
 export async function updatePersonAccessAction(formData: FormData) {

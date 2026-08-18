@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ChevronRight, Search } from 'lucide-react';
-import { OnboardingItemType, OnboardingStatus, Prisma, StartupStatus } from '@prisma/client';
+import { OnboardingItemType, OnboardingStatus, Prisma, Role, StartupStatus } from '@prisma/client';
+import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { accessibleStartupWhere, requireSession } from '@/lib/auth';
 
@@ -17,6 +18,8 @@ type SearchParams = Promise<{ q?: string; filter?: string }>;
 
 function statusStyle(status: StartupStatus) {
   if (status === StartupStatus.ACTIVE) return 'bg-success-bg text-success';
+  if (status === StartupStatus.APPLICATION_PENDING) return 'bg-accent-purple-bg text-accent-purple';
+  if (status === StartupStatus.REJECTED) return 'bg-danger-bg text-danger';
   if (status === StartupStatus.WITHDRAWN) return 'bg-warning-bg text-warning';
   return 'bg-[#f0f0f4] text-prise-text-secondary';
 }
@@ -28,6 +31,7 @@ function statusLabel(status: StartupStatus) {
 export default async function StartupsPage({ searchParams }: { searchParams: SearchParams }) {
   const { q = '', filter = 'all' } = await searchParams;
   const session = await requireSession();
+  if (session.user.role === Role.INVESTOR) redirect('/portfolio');
   const search = q.trim();
   const scope = accessibleStartupWhere(session.user);
   const where: Prisma.StartupWhereInput = { ...scope };
@@ -41,6 +45,7 @@ export default async function StartupsPage({ searchParams }: { searchParams: Sea
   }
   if (filter === 'active') where.status = StartupStatus.ACTIVE;
   if (filter === 'inactive') where.status = { in: [StartupStatus.DISCONTINUED, StartupStatus.WITHDRAWN] };
+  if (filter === 'applications') where.status = { in: [StartupStatus.APPLICATION_PENDING, StartupStatus.REJECTED] };
   if (filter === 'attention') {
     where.status = StartupStatus.ACTIVE;
     where.onboardingItems = {
@@ -72,6 +77,7 @@ export default async function StartupsPage({ searchParams }: { searchParams: Sea
       prisma.startup.count({ where: scope }),
       prisma.startup.count({ where: { ...scope, status: StartupStatus.ACTIVE } }),
       prisma.startup.count({ where: { ...scope, status: { in: [StartupStatus.DISCONTINUED, StartupStatus.WITHDRAWN] } } }),
+      prisma.startup.count({ where: { ...scope, status: { in: [StartupStatus.APPLICATION_PENDING, StartupStatus.REJECTED] } } }),
       prisma.startup.count({
         where: {
           ...scope,
@@ -85,7 +91,8 @@ export default async function StartupsPage({ searchParams }: { searchParams: Sea
   const filterLinks = [
     { id: 'all', label: 'All', count: counts[0] },
     { id: 'active', label: 'Active', count: counts[1] },
-    { id: 'attention', label: 'Needs attention', count: counts[3] },
+    { id: 'attention', label: 'Needs attention', count: counts[4] },
+    { id: 'applications', label: 'Applications', count: counts[3] },
     { id: 'inactive', label: 'Inactive', count: counts[2] },
   ];
 

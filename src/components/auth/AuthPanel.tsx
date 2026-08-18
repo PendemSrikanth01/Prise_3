@@ -7,15 +7,25 @@ import { RegisterForm } from '@/components/auth/RegisterForm';
 export function AuthPanel() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const registering = mode === 'register';
+
   return (
     <div>
-      <div className="mb-7 grid grid-cols-2 rounded-xl bg-prise-page p-1" role="tablist" aria-label="Account access">
-        <button type="button" role="tab" aria-selected={!registering} onClick={() => setMode('login')} className={`rounded-lg px-3 py-2.5 text-sm font-semibold transition ${!registering ? 'bg-white text-prise-text shadow-sm' : 'text-prise-text-secondary'}`}>Sign in</button>
-        <button type="button" role="tab" aria-selected={registering} onClick={() => setMode('register')} className={`rounded-lg px-3 py-2.5 text-sm font-semibold transition ${registering ? 'bg-white text-prise-text shadow-sm' : 'text-prise-text-secondary'}`}>Register</button>
+      <div className="mb-2 flex items-center justify-between gap-4">
+        <p className="text-sm font-bold text-[#ed1c24]">{registering ? 'Start your journey' : 'Welcome back'}</p>
+        <button
+          type="button"
+          onClick={() => setMode(registering ? 'login' : 'register')}
+          className="rounded-full border border-[#dedee3] px-3.5 py-2 text-xs font-semibold text-[#55555d] transition hover:border-[#ed1c24] hover:text-[#d0161d]"
+        >
+          {registering ? 'Back to sign in' : 'Create account'}
+        </button>
       </div>
-      <p className="text-sm font-semibold text-prise-primary">{registering ? 'Join PRISE 3.0' : 'Welcome back'}</p>
-      <h2 className="mt-2 text-3xl font-bold tracking-[-.03em]">{registering ? 'Create your workspace' : 'Sign in to PRISE'}</h2>
-      <p className="mb-7 mt-2 text-sm leading-6 text-prise-text-secondary">{registering ? 'Register your startup and begin the incubation pipeline.' : 'Use your registered or program-issued account.'}</p>
+      <h1 className="font-serif text-[clamp(2.25rem,3.2vw,2.85rem)] font-bold leading-[1.05] tracking-[-.035em] text-[#171717]">
+        {registering ? 'Create your PrISE account' : 'Sign in to PrISE'}
+      </h1>
+      <p className="mb-8 mt-3 text-[15px] leading-6 text-[#6e6e73]">
+        {registering ? 'Register your startup and begin the incubation journey.' : 'Access your program workspace and continue your progress.'}
+      </p>
       {registering ? <RegisterForm /> : <LoginForm />}
     </div>
   );

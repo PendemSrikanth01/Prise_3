@@ -1,10 +1,14 @@
 import { BookOpen, Building2, CircleDot } from 'lucide-react';
-import { MilestoneScope } from '@prisma/client';
+import { MilestoneScope, Role } from '@prisma/client';
+import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
+import { requireSession } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 export default async function MilestonesPage() {
+  const session = await requireSession();
+  if (session.user.role === Role.INVESTOR) redirect('/portfolio');
   const templates = await prisma.milestoneTemplate.findMany({
     where: { isActive: true },
     orderBy: [{ phase: 'asc' }, { title: 'asc' }],

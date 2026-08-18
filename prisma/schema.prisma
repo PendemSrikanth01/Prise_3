@@ -26,11 +26,21 @@ enum Role {
 }
 
 enum StartupStatus {
+  APPLICATION_PENDING
   ACTIVE
   NEEDS_ATTENTION
   DISCONTINUED // "Asked to Discontinue" in your sheet
   WITHDRAWN
   GRADUATED
+  REJECTED
+}
+
+enum StartupMemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  FINANCE
+  VIEWER
 }
 
 enum OnboardingItemType {
@@ -78,6 +88,7 @@ enum AssignmentRole {
   INTERN
   EXPERT
   PROGRAM_LEAD
+  INVESTOR
 }
 
 enum Priority {
@@ -126,6 +137,12 @@ enum SessionStatus {
   CANCELLED
 }
 
+enum AttendanceMode {
+  OFFLINE
+  ONLINE
+  ABSENT
+}
+
 enum PaymentStatus {
   PENDING
   PAID
@@ -155,6 +172,41 @@ enum DeliverableStatus {
   APPROVED
   NEEDS_REVISION
   ARCHIVED
+}
+
+enum ProgramActionLifecycle {
+  DRAFT
+  PLANNED
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum ProgramActionStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  WAITING
+  BLOCKED
+  DONE
+}
+
+enum ProgramActionCategory {
+  OUTREACH
+  OPERATIONS
+  WORKSHOP
+  MENTORING
+  MASTERCLASS
+  REPORTING
+  STARTUP_PROGRESS
+  EVENT
+}
+
+enum ProgramCoverageType {
+  NONE
+  AGREEMENT
+  BASELINE
+  PAYMENT
+  MILESTONE_ASSIGNMENT
 }
 
 enum MilestoneStakeholderLane {
@@ -193,20 +245,31 @@ model Person {
   founderOfStartupId String?  @unique
   founderOfStartup   Startup? @relation("FounderPerson", fields: [founderOfStartupId], references: [id])
 
-  assignments          StartupAssignment[]
-  assignedTasks        Task[]              @relation("TaskAssignee")
-  reviewedMilestones   Milestone[]         @relation("MilestoneReviewer")
-  uploadedDeliverables Deliverable[]       @relation("DeliverableUploader")
-  reviewedDeliverables Deliverable[]       @relation("DeliverableReviewer")
-  milestoneStatusUpdates MilestoneStakeholderStatus[] @relation("MilestoneStatusUpdater")
-  milestoneReviews     MilestoneReview[]   @relation("MilestoneReviewAuthor")
-  requestedSupport     SupportRequest[]    @relation("SupportRequester")
-  assignedSupport      SupportRequest[]    @relation("SupportAssignee")
-  activityLogs         ActivityLog[]
-  authSessions         AuthSession[]
-  onboardingReviews    OnboardingItem[]    @relation("OnboardingReviewer")
-  facilitatedSessions Session[]            @relation("SessionFacilitator")
-  notifications       Notification[]       @relation("NotificationRecipient")
+  assignments             StartupAssignment[]
+  startupMemberships      StartupMembership[]
+  investorShares          InvestorStartupShare[]       @relation("InvestorShares")
+  assignedTasks           Task[]                       @relation("TaskAssignee")
+  createdTasks            Task[]                       @relation("TaskCreator")
+  reviewedMilestones      Milestone[]                  @relation("MilestoneReviewer")
+  uploadedDeliverables    Deliverable[]                @relation("DeliverableUploader")
+  reviewedDeliverables    Deliverable[]                @relation("DeliverableReviewer")
+  milestoneStatusUpdates  MilestoneStakeholderStatus[] @relation("MilestoneStatusUpdater")
+  milestoneReviews        MilestoneReview[]            @relation("MilestoneReviewAuthor")
+  requestedSupport        SupportRequest[]             @relation("SupportRequester")
+  assignedSupport         SupportRequest[]             @relation("SupportAssignee")
+  activityLogs            ActivityLog[]
+  authSessions            AuthSession[]
+  onboardingReviews       OnboardingItem[]             @relation("OnboardingReviewer")
+  onboardingUploads       OnboardingDocument[]         @relation("OnboardingUploader")
+  facilitatedSessions     Session[]                    @relation("SessionFacilitator")
+  notifications           Notification[]               @relation("NotificationRecipient")
+  ownedProgramActions     ProgramAction[]              @relation("ProgramActionOwner")
+  createdProgramActions   ProgramAction[]              @relation("ProgramActionCreator")
+  approvedProgramActions  ProgramAction[]              @relation("ProgramActionApprover")
+  ownedProgramSubtasks    ProgramActionSubtask[]       @relation("ProgramSubtaskOwner")
+  uploadedProgramEvidence ProgramActionEvidence[]      @relation("ProgramEvidenceUploader")
+  reviewedProgramEvidence ProgramActionEvidence[]      @relation("ProgramEvidenceReviewer")
+  recordedAttendance      AttendanceRecord[]           @relation("AttendanceRecorder")
 
   @@index([role])
   @@index([isActive])
@@ -257,6 +320,37 @@ model StartupAssignment {
   @@index([startupId])
 }
 
+model StartupMembership {
+  id        String            @id @default(cuid())
+  startupId String
+  personId  String
+  role      StartupMemberRole @default(MEMBER)
+  isActive  Boolean           @default(true)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  startup Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  person  Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([startupId, personId])
+  @@index([personId, isActive])
+  @@index([startupId, role])
+}
+
+model InvestorStartupShare {
+  id               String   @id @default(cuid())
+  startupId        String
+  investorId       String
+  canViewDocuments Boolean  @default(false)
+  sharedAt         DateTime @default(now())
+
+  startup  Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  investor Person  @relation("InvestorShares", fields: [investorId], references: [id], onDelete: Cascade)
+
+  @@unique([startupId, investorId])
+  @@index([investorId])
+}
+
 // ---------------------------------------------------------------------------
 // STARTUP
 // ---------------------------------------------------------------------------
@@ -284,15 +378,18 @@ model Startup {
   status       StartupStatus @default(ACTIVE)
   healthStatus String? // free-text next-action / health note for Home screen
 
-  founder             Person?              @relation("FounderPerson")
+  founder             Person?                @relation("FounderPerson")
   onboardingItems     OnboardingItem[]
   milestones          Milestone[]
   tasks               Task[]
   assignments         StartupAssignment[]
+  memberships         StartupMembership[]
+  investorShares      InvestorStartupShare[]
   supportRequests     SupportRequest[]
   sessions            Session[]
   paymentInstallments PaymentInstallment[]
-  activityLogs        ActivityLog[]        @relation("StartupActivity")
+  attendanceRecords   AttendanceRecord[]
+  activityLogs        ActivityLog[]          @relation("StartupActivity")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -314,8 +411,9 @@ model OnboardingItem {
   reviewedById String?
   remarks      String?
 
-  startup    Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
-  reviewedBy Person? @relation("OnboardingReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  startup    Startup              @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  reviewedBy Person?              @relation("OnboardingReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  documents  OnboardingDocument[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -323,6 +421,25 @@ model OnboardingItem {
   @@unique([startupId, type])
   @@index([status])
   @@index([reviewedById])
+}
+
+model OnboardingDocument {
+  id               String   @id @default(cuid())
+  onboardingItemId String
+  uploaderId       String?
+  name             String
+  storageKey       String
+  mimeType         String?
+  sizeBytes        Int?
+  version          Int      @default(1)
+  description      String?
+  createdAt        DateTime @default(now())
+
+  onboardingItem OnboardingItem @relation(fields: [onboardingItemId], references: [id], onDelete: Cascade)
+  uploader       Person?        @relation("OnboardingUploader", fields: [uploaderId], references: [id], onDelete: SetNull)
+
+  @@index([onboardingItemId, createdAt])
+  @@index([uploaderId])
 }
 
 // ---------------------------------------------------------------------------
@@ -366,12 +483,12 @@ model Milestone {
   reviewerId  String?
   priority    Priority        @default(NORMAL)
 
-  startup      Startup            @relation(fields: [startupId], references: [id], onDelete: Cascade)
-  template     MilestoneTemplate? @relation(fields: [templateId], references: [id])
-  reviewer     Person?            @relation("MilestoneReviewer", fields: [reviewerId], references: [id])
-  tasks        Task[]
-  deliverables Deliverable[]
-  reviews      MilestoneReview[]
+  startup             Startup                      @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  template            MilestoneTemplate?           @relation(fields: [templateId], references: [id])
+  reviewer            Person?                      @relation("MilestoneReviewer", fields: [reviewerId], references: [id])
+  tasks               Task[]
+  deliverables        Deliverable[]
+  reviews             MilestoneReview[]
   stakeholderStatuses MilestoneStakeholderStatus[]
 
   createdAt DateTime @default(now())
@@ -393,6 +510,7 @@ model Task {
   startupId   String?
   milestoneId String?
   assigneeId  String?
+  createdById String?
 
   title         String
   description   String?
@@ -405,32 +523,34 @@ model Task {
   startup   Startup?   @relation(fields: [startupId], references: [id], onDelete: Cascade)
   milestone Milestone? @relation(fields: [milestoneId], references: [id])
   assignee  Person?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdBy Person?    @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([assigneeId, status])
+  @@index([createdById, createdAt])
   @@index([startupId])
   @@index([milestoneId])
 }
 
 model Deliverable {
-  id          String   @id @default(cuid())
-  milestoneId String
-  uploaderId  String?
-  name        String
-  storageKey  String
-  mimeType    String?
-  sizeBytes   Int?
-  version     Int      @default(1)
-  status      DeliverableStatus @default(SUBMITTED)
-  description String?
-  reviewerId  String?
-  feedback    String?
-  submittedAt DateTime? @default(now())
-  reviewedAt  DateTime?
+  id              String                    @id @default(cuid())
+  milestoneId     String
+  uploaderId      String?
+  name            String
+  storageKey      String
+  mimeType        String?
+  sizeBytes       Int?
+  version         Int                       @default(1)
+  status          DeliverableStatus         @default(SUBMITTED)
+  description     String?
+  reviewerId      String?
+  feedback        String?
+  submittedAt     DateTime?                 @default(now())
+  reviewedAt      DateTime?
   stakeholderLane MilestoneStakeholderLane?
-  createdAt   DateTime @default(now())
+  createdAt       DateTime                  @default(now())
 
   milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
   uploader  Person?   @relation("DeliverableUploader", fields: [uploaderId], references: [id])
@@ -441,6 +561,97 @@ model Deliverable {
   @@index([status, createdAt])
   @@index([reviewerId])
   @@index([milestoneId, stakeholderLane, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// PROGRAM OPERATIONS — internal action plan, ownership, evidence and readiness
+// ---------------------------------------------------------------------------
+
+model ProgramAction {
+  id           String                 @id @default(cuid())
+  cohort       String                 @default("PrISE 3.0")
+  phase        Int
+  phaseName    String
+  title        String
+  position     Int
+  category     ProgramActionCategory  @default(OPERATIONS)
+  lifecycle    ProgramActionLifecycle @default(PLANNED)
+  status       ProgramActionStatus    @default(NOT_STARTED)
+  priority     Priority               @default(NORMAL)
+  isMandatory  Boolean                @default(true)
+  coverageType ProgramCoverageType    @default(NONE)
+  startDate    DateTime?
+  dueDate      DateTime?
+  notes        String?
+  ownerId      String?
+  createdById  String?
+  approvedById String?
+  approvedAt   DateTime?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  owner      Person?                 @relation("ProgramActionOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  createdBy  Person?                 @relation("ProgramActionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  approvedBy Person?                 @relation("ProgramActionApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  subtasks   ProgramActionSubtask[]
+  evidence   ProgramActionEvidence[]
+
+  @@unique([cohort, phase, title])
+  @@index([cohort, phase, position])
+  @@index([lifecycle, status])
+  @@index([ownerId, status, dueDate])
+  @@index([dueDate, status])
+}
+
+model ProgramActionSubtask {
+  id        String              @id @default(cuid())
+  actionId  String
+  title     String
+  position  Int
+  status    ProgramActionStatus @default(NOT_STARTED)
+  dueDate   DateTime?
+  notes     String?
+  ownerId   String?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  action   ProgramAction           @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  owner    Person?                 @relation("ProgramSubtaskOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  evidence ProgramActionEvidence[]
+
+  @@unique([actionId, title])
+  @@index([actionId, position])
+  @@index([ownerId, status, dueDate])
+}
+
+model ProgramActionEvidence {
+  id          String            @id @default(cuid())
+  actionId    String
+  subtaskId   String?
+  uploaderId  String?
+  reviewerId  String?
+  name        String
+  storageKey  String
+  mimeType    String?
+  sizeBytes   Int?
+  version     Int               @default(1)
+  status      DeliverableStatus @default(SUBMITTED)
+  description String?
+  feedback    String?
+  submittedAt DateTime          @default(now())
+  reviewedAt  DateTime?
+  createdAt   DateTime          @default(now())
+
+  action   ProgramAction         @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  subtask  ProgramActionSubtask? @relation(fields: [subtaskId], references: [id], onDelete: SetNull)
+  uploader Person?               @relation("ProgramEvidenceUploader", fields: [uploaderId], references: [id], onDelete: SetNull)
+  reviewer Person?               @relation("ProgramEvidenceReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([actionId, createdAt])
+  @@index([subtaskId, createdAt])
+  @@index([status, createdAt])
+  @@index([uploaderId])
+  @@index([reviewerId])
 }
 
 model MilestoneStakeholderStatus {
@@ -454,7 +665,7 @@ model MilestoneStakeholderStatus {
   updatedAt   DateTime                  @updatedAt
 
   milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
-  updatedBy  Person    @relation("MilestoneStatusUpdater", fields: [updatedById], references: [id])
+  updatedBy Person    @relation("MilestoneStatusUpdater", fields: [updatedById], references: [id])
 
   @@unique([milestoneId, lane])
   @@index([lane, state])
@@ -513,7 +724,7 @@ model Session {
   participantIds  String[]
   isCohortWide    Boolean       @default(false)
   meetingProvider String?
-  externalEventId String?
+  externalEventId String?       @unique
   meetingUrl      String?
   outcome         String?
   nextActions     String?
@@ -522,11 +733,32 @@ model Session {
 
   startup     Startup? @relation(fields: [startupId], references: [id], onDelete: Cascade)
   facilitator Person?  @relation("SessionFacilitator", fields: [facilitatorId], references: [id], onDelete: SetNull)
+  attendance  AttendanceRecord[]
 
   @@index([startsAt, status])
   @@index([startupId])
   @@index([facilitatorId, startsAt])
   @@index([participantIds], type: Gin)
+}
+
+model AttendanceRecord {
+  id           String         @id @default(cuid())
+  sessionId    String
+  startupId    String
+  mode         AttendanceMode
+  note         String?
+  recordedById String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  session    Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  startup    Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  recordedBy Person? @relation("AttendanceRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@unique([sessionId, startupId])
+  @@index([startupId, mode])
+  @@index([sessionId, mode])
+  @@index([recordedById, createdAt])
 }
 
 model Notification {

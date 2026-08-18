@@ -1,6 +1,7 @@
 'use client';
 
 import { Bell, Menu, Search } from 'lucide-react';
+import { PriseWordmark } from '@/components/brand/BrandIdentity';
 
 export function TopBar({ onMenu, userName }: { onMenu: () => void; userName: string }) {
   return (
@@ -14,9 +15,7 @@ export function TopBar({ onMenu, userName }: { onMenu: () => void; userName: str
         >
           <Menu size={19} />
         </button>
-        <div className="rounded-pill border border-prise-border bg-white px-3 py-2 text-sm font-medium text-prise-text sm:px-4">
-          PRISE 3.0
-        </div>
+        <PriseWordmark className="h-8 w-[112px] border border-prise-border" />
       </div>
 
       <form action="/startups" className="mx-auto hidden w-full max-w-md items-center gap-2 rounded-pill border border-prise-border bg-prise-page px-4 py-2 md:flex">

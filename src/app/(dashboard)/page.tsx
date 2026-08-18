@@ -1,4 +1,5 @@
 import { AlertCircle, Building2, ClipboardCheck, Library, Target, Users2 } from 'lucide-react';
+import Link from 'next/link';
 import { OnboardingItemType, OnboardingStatus, Role, StartupStatus } from '@prisma/client';
 import {
   HeroSpotlightCard,
@@ -12,6 +13,7 @@ import { prisma } from '@/lib/prisma';
 import { accessibleStartupWhere, requireSession } from '@/lib/auth';
 import { MentorDashboard } from '@/components/dashboard/MentorDashboard';
 import { FounderDashboard } from '@/components/dashboard/FounderDashboard';
+import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,13 +33,15 @@ const ITEM_LABEL: Record<(typeof CORE_ONBOARDING)[number], string> = {
 
 export default async function HomePage() {
   const session = await requireSession();
+  if (session.user.role === Role.INVESTOR) redirect('/portfolio');
   if (session.user.role === Role.MENTOR) return <MentorDashboard user={session.user} />;
   if (session.user.role === Role.FOUNDER) return <FounderDashboard user={session.user} />;
   const scope = accessibleStartupWhere(session.user);
-  const [activeCount, selectedCount, attentionStartups, pendingCoreItems, templateCount, completionGroups] =
+  const [activeCount, selectedCount, pendingApplicationCount, attentionStartups, pendingCoreItems, templateCount, completionGroups] =
     await Promise.all([
       prisma.startup.count({ where: { ...scope, status: StartupStatus.ACTIVE } }),
       prisma.startup.count({ where: scope }),
+      prisma.startup.count({ where: { ...scope, status: { in: [StartupStatus.APPLICATION_PENDING, StartupStatus.REJECTED] } } }),
       prisma.startup.findMany({
         where: {
           ...scope,
@@ -104,6 +108,7 @@ export default async function HomePage() {
         <h1 className="text-2xl font-bold tracking-[-0.025em] text-prise-text sm:text-[28px]">Good morning, {session.user.name.split(' ')[0]}</h1>
         <p className="mt-1.5 text-sm text-prise-text-secondary">Here is what needs attention across PRISE 3.0 today.</p>
       </div>
+      {pendingApplicationCount > 0 ? <Link href="/startups?filter=applications" className="mb-5 flex items-center justify-between rounded-xl border border-accent-purple/20 bg-accent-purple-bg px-4 py-3 text-sm"><span><strong>{pendingApplicationCount} startup application{pendingApplicationCount === 1 ? '' : 's'}</strong> waiting for a program decision</span><span className="font-semibold text-accent-purple">Review →</span></Link> : null}
 
       <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard

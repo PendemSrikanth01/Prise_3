@@ -1,7 +1,7 @@
 'use server';
 
 import { compare, hash } from 'bcryptjs';
-import { OnboardingItemType, Prisma, Role } from '@prisma/client';
+import { OnboardingItemType, Prisma, Role, StartupMemberRole, StartupStatus } from '@prisma/client';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { clearAuthSession, createAuthSession, privacyHash, requireSession } from '@/lib/auth';
@@ -94,27 +94,10 @@ export async function registerAction(_: AuthActionState, formData: FormData): Pr
           name: startupName,
           founderName: name,
           founderEmail: email,
+          status: StartupStatus.APPLICATION_PENDING,
           onboardingItems: { create: Object.values(OnboardingItemType).map((type) => ({ type })) },
         },
       });
-      const templates = await tx.milestoneTemplate.findMany({
-        where: { isActive: true, scope: 'STARTUP' },
-        orderBy: [{ phase: 'asc' }, { title: 'asc' }],
-        take: 10,
-      });
-      if (templates.length) {
-        await tx.milestone.createMany({
-          data: templates.map((template) => ({
-            startupId: startup.id,
-            templateId: template.id,
-            phase: template.phase,
-            title: template.title,
-            keyActivity: template.keyActivity,
-            deliverable: template.deliverable,
-            effort: template.effort,
-          })),
-        });
-      }
       const created = await tx.person.create({
         data: {
           name,
@@ -125,6 +108,7 @@ export async function registerAction(_: AuthActionState, formData: FormData): Pr
           founderOfStartupId: startup.id,
         },
       });
+      await tx.startupMembership.create({ data: { startupId: startup.id, personId: created.id, role: StartupMemberRole.OWNER } });
       await tx.activityLog.create({
         data: {
           actorId: created.id,
@@ -146,5 +130,5 @@ export async function registerAction(_: AuthActionState, formData: FormData): Pr
     }
     return { error: 'Registration could not be completed. Please try again.' };
   }
-  redirect('/');
+  redirect('/application');
 }

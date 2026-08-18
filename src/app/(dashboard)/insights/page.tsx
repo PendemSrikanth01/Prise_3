@@ -1,11 +1,102 @@
-import { PageIntro } from '@/components/ui/PageIntro';
+import Link from 'next/link';
+import { AttendanceMode, OnboardingStatus, SessionType, StartupStatus } from '@prisma/client';
+import { redirect } from 'next/navigation';
+import { ProgramDashboardCharts, DashboardDataset } from '@/components/dashboard/ProgramDashboardCharts';
+import { isProgramRole, requireSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { accessibleStartupWhere, requireSession } from '@/lib/auth';
+import { OFFICIAL_COHORT_WHERE } from '@/lib/startup-metrics';
 
 export const dynamic = 'force-dynamic';
+type Tab = 'cohort' | 'compliance' | 'finance' | 'engagement';
 
-export default async function InsightsPage() {
+export default async function InsightsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const session = await requireSession();
-  const sectors = await prisma.startup.groupBy({ by: ['sector'], where: accessibleStartupWhere(session.user), _count: { _all: true }, orderBy: { _count: { sector: 'desc' } } });
-  return <div className="mx-auto w-full max-w-[1350px] p-4 sm:p-6 lg:p-8"><PageIntro title="Insights" description="Source-backed cohort composition. Outcome and milestone analytics will appear only after real operating data exists." /><div className="mt-6 rounded-card border border-prise-border bg-white p-5 shadow-card sm:p-6"><h2 className="text-base font-semibold">Sector distribution</h2><div className="mt-5 space-y-4">{sectors.map((sector) => <div key={sector.sector ?? 'Unknown'} className="flex items-center justify-between gap-4"><span className="text-sm text-prise-text-secondary">{sector.sector ?? 'Unknown'}</span><span className="rounded-pill bg-info-bg px-2.5 py-1 text-xs font-semibold text-info">{sector._count._all}</span></div>)}</div></div></div>;
+  if (!isProgramRole(session.user.role)) redirect('/');
+  const { tab: rawTab } = await searchParams;
+  const tab: Tab = ['cohort','compliance','finance','engagement'].includes(rawTab ?? '') ? rawTab as Tab : 'cohort';
+  const startups = await prisma.startup.findMany({
+    where: OFFICIAL_COHORT_WHERE,
+    orderBy: { sNo: 'asc' },
+    include: {
+      onboardingItems: { select: { type: true, status: true } },
+      paymentInstallments: { select: { status: true } },
+    },
+  });
+  const activeStatuses = new Set<StartupStatus>([StartupStatus.ACTIVE, StartupStatus.NEEDS_ATTENTION]);
+  const activeIds = startups.filter((startup) => activeStatuses.has(startup.status)).map((startup) => startup.id);
+  const attendance = await prisma.session.findMany({
+    where: { externalEventId: { not: null } },
+    orderBy: { startsAt: 'asc' },
+    select: {
+      title: true,
+      type: true,
+      startsAt: true,
+      attendance: { where: { startupId: { in: activeIds } }, select: { mode: true } },
+    },
+  });
+
+  const active = startups.filter((startup) => activeIds.includes(startup.id));
+  const submitted = new Set<OnboardingStatus>([OnboardingStatus.SUBMITTED, OnboardingStatus.APPROVED]);
+  const documentTypes = [
+    ['Agreement', 'AGREEMENT'],
+    ['Baseline form', 'BASELINE'],
+    ['2 min pitch', 'PITCH_VIDEO'],
+    ['Logo', 'LOGO'],
+    ['Fee payment', 'FEE_PAYMENT'],
+  ] as const;
+  const feeExpected = active.reduce((sum, startup) => sum + Number(startup.agreedFee ?? 0), 0);
+  const feeReceived = active.reduce((sum, startup) => sum + Number(startup.totalFeePaid ?? 0), 0);
+  const dataset: DashboardDataset = {
+    cohortStatus: group(startups.map((startup) => statusLabel(startup.status))),
+    states: group(active.map((startup) => startup.state ?? 'Not recorded')),
+    sectors: group(active.map((startup) => startup.sector ?? 'Not recorded')),
+    legalStructures: group(active.map((startup) => startup.legalStructure ?? 'Not recorded')),
+    documents: documentTypes.map(([name, type]) => {
+      const count = active.filter((startup) => startup.onboardingItems.some((item) => item.type === type && submitted.has(item.status))).length;
+      return { name, submitted: count, pending: active.length - count };
+    }),
+    feeSummary: [
+      { name: 'Expected', value: feeExpected },
+      { name: 'Received', value: feeReceived },
+      { name: 'Pending', value: Math.max(0, feeExpected - feeReceived) },
+    ],
+    agreedFee: group(active.map((startup) => `₹${Number(startup.agreedFee ?? 0).toLocaleString('en-IN')}`)),
+    eventAttendance: attendance.filter((event) => event.type !== SessionType.REVIEW).map(attendanceRow),
+    meetingAttendance: attendance.filter((event) => event.type === SessionType.REVIEW).map(attendanceRow),
+  };
+
+  const tabs: Array<[Tab, string, string]> = [
+    ['cohort', 'Cohort', '4 visuals'],
+    ['compliance', 'Compliance', '1 visual'],
+    ['finance', 'Finance', '2 visuals'],
+    ['engagement', 'Engagement', '2 visuals'],
+  ];
+  return <div className="mx-auto w-full max-w-[1480px] p-4 sm:p-6 lg:p-8">
+    <div><div className="text-xs font-semibold uppercase tracking-[.14em] text-prise-primary">PrISE 3.0 · Live analytics</div><h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Program dashboard</h1><p className="mt-2 max-w-3xl text-sm text-prise-text-secondary">Nine operating visuals calculated from the reconciled official roster, onboarding records, fee data and per-startup attendance.</p></div>
+    <nav className="mt-6 grid max-w-full grid-cols-4 gap-1 rounded-xl border bg-white p-1 shadow-card sm:flex sm:w-fit" aria-label="Dashboard sections">{tabs.map(([key,label,count]) => <Link key={key} href={`/insights?tab=${key}`} className={`whitespace-nowrap rounded-lg px-2 py-2 text-center text-[11px] font-semibold sm:px-4 sm:text-sm ${tab === key ? 'bg-prise-sidebar text-white' : 'text-prise-text-secondary hover:bg-prise-page'}`}>{label}<span className="ml-2 hidden text-[10px] opacity-70 sm:inline">{count}</span></Link>)}</nav>
+    <ProgramDashboardCharts tab={tab} data={dataset} activeCount={active.length} />
+  </div>;
+}
+
+function group(values: string[]) {
+  const counts = new Map<string, number>();
+  values.forEach((value) => counts.set(value, (counts.get(value) ?? 0) + 1));
+  return [...counts].map(([name, value]) => ({ name, value })).sort((a,b) => b.value-a.value);
+}
+
+function statusLabel(status: StartupStatus) {
+  if (status === StartupStatus.DISCONTINUED) return 'Discontinued';
+  if (status === StartupStatus.WITHDRAWN) return 'Withdrawn';
+  if (status === StartupStatus.NEEDS_ATTENTION) return 'Needs attention';
+  return status[0] + status.slice(1).toLowerCase().replaceAll('_', ' ');
+}
+
+function attendanceRow(event: { title: string; startsAt: Date; attendance: Array<{ mode: AttendanceMode }> }) {
+  return {
+    name: event.title.replace('PrISE 3.0 ', ''),
+    date: event.startsAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
+    offline: event.attendance.filter((record) => record.mode === AttendanceMode.OFFLINE).length,
+    online: event.attendance.filter((record) => record.mode === AttendanceMode.ONLINE).length,
+    absent: event.attendance.filter((record) => record.mode === AttendanceMode.ABSENT).length,
+  };
 }

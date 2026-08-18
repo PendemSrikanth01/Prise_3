@@ -1,6 +1,6 @@
 import { AssignmentRole, Role } from '@prisma/client';
 import { assignStartupPersonAction, removeStartupPersonAction } from '@/app/actions/mentor';
-import { createPersonAction, resetPersonPasswordAction, updatePersonAccessAction } from '@/app/actions/workflows';
+import { createPersonAction, removeInvestorShareAction, resetPersonPasswordAction, shareStartupWithInvestorAction, updatePersonAccessAction } from '@/app/actions/workflows';
 import { PasswordForm } from '@/components/auth/PasswordForm';
 import { ConfirmButton, SubmitButton } from '@/components/ui/FormButtons';
 import { hasPermission, requireSession } from '@/lib/auth';
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 export default async function SettingsPage() {
   const session = await requireSession();
   const canManage = hasPermission(session.user.role, 'people:manage');
-  const [people, startups, assignments] = canManage
+  const [people, startups, assignments, investorShares] = canManage
     ? await Promise.all([
         prisma.person.findMany({
           orderBy: { name: 'asc' },
@@ -19,8 +19,9 @@ export default async function SettingsPage() {
         }),
         prisma.startup.findMany({ orderBy: { sNo: 'asc' }, select: { id: true, name: true } }),
         prisma.startupAssignment.findMany({ include: { startup: { select: { name: true } }, person: { select: { name: true } } }, orderBy: [{ startup: { name: 'asc' } }, { person: { name: 'asc' } }] }),
+        prisma.investorStartupShare.findMany({ include: { startup: { select: { name: true } }, investor: { select: { name: true, email: true } } }, orderBy: [{ startup: { name: 'asc' } }, { investor: { name: 'asc' } }] }),
       ])
-    : [[], [], []];
+    : [[], [], [], []];
 
   return (
     <div className="mx-auto w-full max-w-6xl p-4 sm:p-6 lg:p-8">
@@ -82,10 +83,22 @@ export default async function SettingsPage() {
             <form action={assignStartupPersonAction} className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_180px_auto]">
               <select name="startupId" required className="h-11 rounded-input border bg-white px-3 text-sm"><option value="">Choose startup</option>{startups.map((startup) => <option key={startup.id} value={startup.id}>{startup.name}</option>)}</select>
               <select name="personId" required className="h-11 rounded-input border bg-white px-3 text-sm"><option value="">Choose team member</option>{people.filter((person) => person.isActive).map((person) => <option key={person.id} value={person.id}>{person.name} · {person.role.replaceAll('_', ' ').toLowerCase()}</option>)}</select>
-              <select name="assignmentRole" defaultValue={AssignmentRole.MENTOR} className="h-11 rounded-input border bg-white px-3 text-sm">{Object.values(AssignmentRole).map((value) => <option key={value}>{value}</option>)}</select>
+              <select name="assignmentRole" defaultValue={AssignmentRole.MENTOR} className="h-11 rounded-input border bg-white px-3 text-sm">{Object.values(AssignmentRole).filter((value) => value !== AssignmentRole.INVESTOR).map((value) => <option key={value}>{value}</option>)}</select>
               <SubmitButton>Assign</SubmitButton>
             </form>
             <div className="mt-5 divide-y border-t">{assignments.map((assignment) => <form action={removeStartupPersonAction} key={assignment.id} className="flex flex-wrap items-center gap-3 py-3 text-sm"><input type="hidden" name="assignmentId" value={assignment.id} /><div className="min-w-48 flex-1 font-semibold">{assignment.startup.name}</div><div className="min-w-44 text-prise-text-secondary">{assignment.person.name}</div><span className="rounded-pill bg-prise-page px-2.5 py-1 text-xs font-semibold">{assignment.role.toLowerCase()}</span><ConfirmButton message="Remove this startup assignment?">Remove</ConfirmButton></form>)}{assignments.length === 0 ? <div className="py-5 text-sm text-prise-text-secondary">No startup team assignments yet.</div> : null}</div>
+          </section>
+
+          <section className="mt-5 rounded-card border bg-white p-5 shadow-card sm:p-6">
+            <h2 className="font-semibold">Investor portfolio access</h2>
+            <p className="mt-1 text-sm text-prise-text-secondary">Share only approved milestone progress. Internal tasks, onboarding, payments and support remain private.</p>
+            <form action={shareStartupWithInvestorAction} className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
+              <select name="startupId" required className="h-11 rounded-input border bg-white px-3 text-sm"><option value="">Choose startup</option>{startups.map((startup) => <option key={startup.id} value={startup.id}>{startup.name}</option>)}</select>
+              <select name="investorId" required className="h-11 rounded-input border bg-white px-3 text-sm"><option value="">Choose investor</option>{people.filter((person) => person.role === Role.INVESTOR && person.isActive).map((person) => <option key={person.id} value={person.id}>{person.name} · {person.email}</option>)}</select>
+              <label className="flex items-center gap-2 rounded-input border px-3 text-xs font-semibold"><input type="checkbox" name="canViewDocuments" /> Approved files</label>
+              <SubmitButton>Share</SubmitButton>
+            </form>
+            <div className="mt-5 divide-y border-t">{investorShares.map((share) => <form action={removeInvestorShareAction} key={share.id} className="flex flex-wrap items-center gap-3 py-3 text-sm"><input type="hidden" name="shareId" value={share.id} /><div className="min-w-48 flex-1 font-semibold">{share.startup.name}</div><div className="min-w-48 text-prise-text-secondary">{share.investor.name} · {share.investor.email}</div><span className="rounded-pill bg-prise-page px-2.5 py-1 text-xs font-semibold">{share.canViewDocuments ? 'Approved files on' : 'Progress only'}</span><ConfirmButton message="Remove this investor's portfolio access?">Remove</ConfirmButton></form>)}{investorShares.length === 0 ? <div className="py-5 text-sm text-prise-text-secondary">No investor access has been shared.</div> : null}</div>
           </section>
 
           <section className="mt-5 overflow-hidden rounded-card border bg-white shadow-card">

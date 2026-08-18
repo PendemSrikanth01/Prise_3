@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { Priority, SupportRequestStatus } from '@prisma/client';
+import { Priority, SupportRequestStatus, Role } from '@prisma/client';
+import { redirect } from 'next/navigation';
 import { createSupportAction, updateSupportAction } from '@/app/actions/workflows';
 import { SubmitButton } from '@/components/ui/FormButtons';
 import { accessibleStartupWhere, hasPermission, requireSession } from '@/lib/auth';
@@ -10,6 +11,7 @@ const inputClass = 'h-11 rounded-input border bg-white px-3 text-sm outline-none
 
 export default async function SupportPage() {
   const auth = await requireSession();
+  if (auth.user.role === Role.INVESTOR) redirect('/portfolio');
   const scope = accessibleStartupWhere(auth.user);
   const canCreate = hasPermission(auth.user.role, 'support:create');
   const canManage = hasPermission(auth.user.role, 'support:manage');

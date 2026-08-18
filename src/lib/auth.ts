@@ -4,7 +4,7 @@ import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma, Role, StartupMemberRole, StartupStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 
 export const SESSION_COOKIE = 'prise_session';
@@ -149,10 +149,22 @@ export const getSession = cache(async (): Promise<VerifiedSession | null> => {
   };
 });
 
-export async function requireSession(options?: { allowPasswordChange?: boolean }) {
+export async function requireSession(options?: { allowPasswordChange?: boolean; allowPendingApplication?: boolean }) {
   const session = await getSession();
   if (!session) redirect('/login');
   if (session.user.mustChangePassword && !options?.allowPasswordChange) redirect('/account/password');
+  if (session.user.role === Role.FOUNDER && !options?.allowPendingApplication) {
+    const startup = await prisma.startup.findFirst({
+      where: {
+        OR: [
+          { id: session.user.founderOfStartupId ?? '__none__' },
+          { memberships: { some: { personId: session.user.id, isActive: true } } },
+        ],
+      },
+      select: { status: true },
+    });
+    if (startup?.status === StartupStatus.APPLICATION_PENDING || startup?.status === StartupStatus.REJECTED) redirect('/application');
+  }
   return session;
 }
 
@@ -167,19 +179,70 @@ export async function requirePermission(permission: Permission) {
 }
 
 export function accessibleStartupWhere(user: AuthUser): Prisma.StartupWhereInput {
-  const globalViewRoles = new Set<Role>([Role.PROGRAM_LEAD, Role.PROGRAM_TEAM, Role.INVESTOR]);
+  const globalViewRoles = new Set<Role>([Role.PROGRAM_LEAD, Role.PROGRAM_TEAM]);
   if (globalViewRoles.has(user.role)) return {};
-  if (user.role === Role.FOUNDER) return { id: user.founderOfStartupId ?? '__none__' };
+  if (user.role === Role.INVESTOR) return { investorShares: { some: { investorId: user.id } } };
+  if (user.role === Role.FOUNDER) return {
+    OR: [
+      { id: user.founderOfStartupId ?? '__none__' },
+      { memberships: { some: { personId: user.id, isActive: true } } },
+    ],
+  };
   return { assignments: { some: { personId: user.id } } };
+}
+
+export function isProgramRole(role: Role) {
+  return role === Role.PROGRAM_LEAD || role === Role.PROGRAM_TEAM;
+}
+
+export async function startupMemberRole(startupId: string, personId: string) {
+  const membership = await prisma.startupMembership.findUnique({
+    where: { startupId_personId: { startupId, personId } },
+    select: { role: true, isActive: true },
+  });
+  return membership?.isActive ? membership.role : null;
+}
+
+export function canEditTaskRecord(user: AuthUser, task: { createdById: string | null; assigneeId: string | null }) {
+  if (isProgramRole(user.role)) return true;
+  if (!hasPermission(user.role, 'task:manage')) return false;
+  return task.createdById === user.id || task.assigneeId === user.id;
+}
+
+export function canDeleteTaskRecord(user: AuthUser, task: { createdById: string | null }) {
+  if (isProgramRole(user.role)) return true;
+  return hasPermission(user.role, 'task:manage') && task.createdById === user.id;
+}
+
+export function canManageStartupMembers(role: Role, membershipRole: StartupMemberRole | null) {
+  return isProgramRole(role) || (role === Role.FOUNDER && (membershipRole === StartupMemberRole.OWNER || membershipRole === StartupMemberRole.ADMIN));
+}
+
+const STARTUP_MEMBER_PERMISSIONS: Record<StartupMemberRole, ReadonlySet<Permission>> = {
+  OWNER: new Set(['startup:update', 'task:manage', 'deliverable:upload', 'payment:manage', 'support:create']),
+  ADMIN: new Set(['startup:update', 'task:manage', 'deliverable:upload', 'payment:manage', 'support:create']),
+  MEMBER: new Set(['task:manage', 'deliverable:upload', 'support:create']),
+  FINANCE: new Set(['payment:manage', 'support:create']),
+  VIEWER: new Set(),
+};
+
+export function hasStartupPermission(role: Role, permission: Permission, membershipRole: StartupMemberRole | null) {
+  if (role !== Role.FOUNDER) return hasPermission(role, permission);
+  return membershipRole ? STARTUP_MEMBER_PERMISSIONS[membershipRole].has(permission) : false;
 }
 
 export async function requireStartupAccess(startupId: string, permission?: Permission) {
   const session = await requireSession();
-  if (permission && !hasPermission(session.user.role, permission)) throw new Error('Forbidden');
   const startup = await prisma.startup.findFirst({
     where: { id: startupId, ...accessibleStartupWhere(session.user) },
-    select: { id: true },
+    select: { id: true, memberships: { where: { personId: session.user.id, isActive: true }, select: { role: true }, take: 1 } },
   });
   if (!startup) throw new Error('Forbidden');
+  if (permission) {
+    const memberRole = session.user.role === Role.FOUNDER
+      ? startup.memberships[0]?.role ?? (session.user.founderOfStartupId === startupId ? StartupMemberRole.OWNER : null)
+      : null;
+    if (!hasStartupPermission(session.user.role, permission, memberRole)) throw new Error('Forbidden');
+  }
   return session;
 }
