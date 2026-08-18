@@ -424,22 +424,24 @@ model OnboardingItem {
 }
 
 model OnboardingDocument {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   onboardingItemId String
   uploaderId       String?
   name             String
   storageKey       String
   mimeType         String?
   sizeBytes        Int?
-  version          Int      @default(1)
+  version          Int       @default(1)
   description      String?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
+  archivedAt       DateTime?
 
   onboardingItem OnboardingItem @relation(fields: [onboardingItemId], references: [id], onDelete: Cascade)
   uploader       Person?        @relation("OnboardingUploader", fields: [uploaderId], references: [id], onDelete: SetNull)
 
   @@index([onboardingItemId, createdAt])
   @@index([uploaderId])
+  @@index([archivedAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -731,8 +733,8 @@ model Session {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  startup     Startup? @relation(fields: [startupId], references: [id], onDelete: Cascade)
-  facilitator Person?  @relation("SessionFacilitator", fields: [facilitatorId], references: [id], onDelete: SetNull)
+  startup     Startup?           @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  facilitator Person?            @relation("SessionFacilitator", fields: [facilitatorId], references: [id], onDelete: SetNull)
   attendance  AttendanceRecord[]
 
   @@index([startsAt, status])

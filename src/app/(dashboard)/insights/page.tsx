@@ -1,10 +1,11 @@
 import Link from 'next/link';
-import { AttendanceMode, OnboardingStatus, SessionType, StartupStatus } from '@prisma/client';
+import { OnboardingStatus, SessionType, StartupStatus } from '@prisma/client';
 import { redirect } from 'next/navigation';
 import { ProgramDashboardCharts, DashboardDataset } from '@/components/dashboard/ProgramDashboardCharts';
 import { isProgramRole, requireSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { OFFICIAL_COHORT_WHERE } from '@/lib/startup-metrics';
+import { attendanceSummary, groupValues, startupStatusLabel } from '@/lib/dashboard-metrics';
 
 export const dynamic = 'force-dynamic';
 type Tab = 'cohort' | 'compliance' | 'finance' | 'engagement';
@@ -47,10 +48,10 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
   const feeExpected = active.reduce((sum, startup) => sum + Number(startup.agreedFee ?? 0), 0);
   const feeReceived = active.reduce((sum, startup) => sum + Number(startup.totalFeePaid ?? 0), 0);
   const dataset: DashboardDataset = {
-    cohortStatus: group(startups.map((startup) => statusLabel(startup.status))),
-    states: group(active.map((startup) => startup.state ?? 'Not recorded')),
-    sectors: group(active.map((startup) => startup.sector ?? 'Not recorded')),
-    legalStructures: group(active.map((startup) => startup.legalStructure ?? 'Not recorded')),
+    cohortStatus: groupValues(startups.map((startup) => startupStatusLabel(startup.status))),
+    states: groupValues(active.map((startup) => startup.state ?? 'Not recorded')),
+    sectors: groupValues(active.map((startup) => startup.sector ?? 'Not recorded')),
+    legalStructures: groupValues(active.map((startup) => startup.legalStructure ?? 'Not recorded')),
     documents: documentTypes.map(([name, type]) => {
       const count = active.filter((startup) => startup.onboardingItems.some((item) => item.type === type && submitted.has(item.status))).length;
       return { name, submitted: count, pending: active.length - count };
@@ -60,9 +61,9 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
       { name: 'Received', value: feeReceived },
       { name: 'Pending', value: Math.max(0, feeExpected - feeReceived) },
     ],
-    agreedFee: group(active.map((startup) => `₹${Number(startup.agreedFee ?? 0).toLocaleString('en-IN')}`)),
-    eventAttendance: attendance.filter((event) => event.type !== SessionType.REVIEW).map(attendanceRow),
-    meetingAttendance: attendance.filter((event) => event.type === SessionType.REVIEW).map(attendanceRow),
+    agreedFee: groupValues(active.map((startup) => `₹${Number(startup.agreedFee ?? 0).toLocaleString('en-IN')}`)),
+    eventAttendance: attendance.filter((event) => event.type !== SessionType.REVIEW).map(attendanceSummary),
+    meetingAttendance: attendance.filter((event) => event.type === SessionType.REVIEW).map(attendanceSummary),
   };
 
   const tabs: Array<[Tab, string, string]> = [
@@ -76,27 +77,4 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
     <nav className="mt-6 grid max-w-full grid-cols-4 gap-1 rounded-xl border bg-white p-1 shadow-card sm:flex sm:w-fit" aria-label="Dashboard sections">{tabs.map(([key,label,count]) => <Link key={key} href={`/insights?tab=${key}`} className={`whitespace-nowrap rounded-lg px-2 py-2 text-center text-[11px] font-semibold sm:px-4 sm:text-sm ${tab === key ? 'bg-prise-sidebar text-white' : 'text-prise-text-secondary hover:bg-prise-page'}`}>{label}<span className="ml-2 hidden text-[10px] opacity-70 sm:inline">{count}</span></Link>)}</nav>
     <ProgramDashboardCharts tab={tab} data={dataset} activeCount={active.length} />
   </div>;
-}
-
-function group(values: string[]) {
-  const counts = new Map<string, number>();
-  values.forEach((value) => counts.set(value, (counts.get(value) ?? 0) + 1));
-  return [...counts].map(([name, value]) => ({ name, value })).sort((a,b) => b.value-a.value);
-}
-
-function statusLabel(status: StartupStatus) {
-  if (status === StartupStatus.DISCONTINUED) return 'Discontinued';
-  if (status === StartupStatus.WITHDRAWN) return 'Withdrawn';
-  if (status === StartupStatus.NEEDS_ATTENTION) return 'Needs attention';
-  return status[0] + status.slice(1).toLowerCase().replaceAll('_', ' ');
-}
-
-function attendanceRow(event: { title: string; startsAt: Date; attendance: Array<{ mode: AttendanceMode }> }) {
-  return {
-    name: event.title.replace('PrISE 3.0 ', ''),
-    date: event.startsAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
-    offline: event.attendance.filter((record) => record.mode === AttendanceMode.OFFLINE).length,
-    online: event.attendance.filter((record) => record.mode === AttendanceMode.ONLINE).length,
-    absent: event.attendance.filter((record) => record.mode === AttendanceMode.ABSENT).length,
-  };
 }

@@ -1,13 +1,13 @@
 'use server';
 
 import {
-  AssignmentRole, NotificationKind, NotificationStatus, Role, SessionStatus, SessionType,
+  AssignmentRole, AttendanceMode, NotificationKind, NotificationStatus, Role, SessionStatus, SessionType,
 } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { auditData } from '@/lib/audit';
 import { sendQueuedNotification } from '@/lib/email';
 import { enumValue, optionalDateTime, optionalText, requiredDateTime, requiredText } from '@/lib/form';
-import { hasPermission, requirePermission, requireStartupAccess } from '@/lib/auth';
+import { hasPermission, isProgramRole, requirePermission, requireSession, requireStartupAccess } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { sessionInviteTemplate } from '@/lib/notification-templates';
 
@@ -117,6 +117,41 @@ export async function deleteSessionAction(formData: FormData) {
     await tx.session.delete({ where: { id: sessionId } });
   });
   refreshMentorWorkspace(existing.startupId);
+}
+
+export async function recordAttendanceAction(formData: FormData) {
+  const actor = await requireSession();
+  if (!isProgramRole(actor.user.role)) throw new Error('Only the program team can record cohort attendance.');
+  const sessionId = requiredText(formData, 'sessionId', 64);
+  const startupId = requiredText(formData, 'startupId', 64);
+  const mode = enumValue(AttendanceMode, formData.get('mode'), 'mode');
+  const [event, startup] = await Promise.all([
+    prisma.session.findUniqueOrThrow({ where: { id: sessionId }, select: { title: true } }),
+    prisma.startup.findUniqueOrThrow({ where: { id: startupId }, select: { name: true } }),
+  ]);
+  await prisma.$transaction(async (tx) => {
+    const record = await tx.attendanceRecord.upsert({
+      where: { sessionId_startupId: { sessionId, startupId } },
+      update: { mode, note: optionalText(formData, 'note', 500), recordedById: actor.user.id },
+      create: { sessionId, startupId, mode, note: optionalText(formData, 'note', 500), recordedById: actor.user.id },
+    });
+    await tx.activityLog.create({ data: auditData({ actor: actor.user, startupId, entityType: 'AttendanceRecord', entityId: record.id, action: 'recorded', summary: `${event.title}: ${startup.name} marked ${mode.toLowerCase()}` }) });
+  });
+  revalidatePath('/calendar');
+  revalidatePath('/insights');
+}
+
+export async function clearAttendanceAction(formData: FormData) {
+  const actor = await requireSession();
+  if (!isProgramRole(actor.user.role)) throw new Error('Only the program team can correct cohort attendance.');
+  const attendanceId = requiredText(formData, 'attendanceId', 64);
+  const record = await prisma.attendanceRecord.findUniqueOrThrow({ where: { id: attendanceId }, include: { session: { select: { title: true } }, startup: { select: { name: true } } } });
+  await prisma.$transaction(async (tx) => {
+    await tx.activityLog.create({ data: auditData({ actor: actor.user, startupId: record.startupId, entityType: 'AttendanceRecord', entityId: attendanceId, action: 'cleared', summary: `${record.session.title}: cleared attendance for ${record.startup.name}` }) });
+    await tx.attendanceRecord.delete({ where: { id: attendanceId } });
+  });
+  revalidatePath('/calendar');
+  revalidatePath('/insights');
 }
 
 export async function createWebinarAction(formData: FormData) {

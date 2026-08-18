@@ -43,6 +43,29 @@ export async function uploadOnboardingDocumentAction(_: UploadState, formData: F
   }
 }
 
+export async function archiveOnboardingDocumentAction(formData: FormData) {
+  const session = await requireSession({ allowPendingApplication: true });
+  const documentId = requiredText(formData, 'onboardingDocumentId', 64);
+  const document = await prisma.onboardingDocument.findFirstOrThrow({
+    where: { id: documentId, archivedAt: null },
+    include: { onboardingItem: { include: { startup: { select: { id: true, name: true } } } } },
+  });
+  await requireStartupAccess(document.onboardingItem.startupId);
+  const programReviewer = hasPermission(session.user.role, 'onboarding:review');
+  const uploaderMayArchive = session.user.id === document.uploaderId && document.onboardingItem.status !== OnboardingStatus.APPROVED;
+  if (!programReviewer && !uploaderMayArchive) throw new Error('Only the uploader or program team can archive this file version.');
+  await prisma.$transaction(async (tx) => {
+    await tx.onboardingDocument.update({ where: { id: documentId }, data: { archivedAt: new Date() } });
+    const remaining = await tx.onboardingDocument.count({ where: { onboardingItemId: document.onboardingItemId, archivedAt: null } });
+    if (!remaining && document.onboardingItem.status !== OnboardingStatus.APPROVED && document.onboardingItem.status !== OnboardingStatus.NA) {
+      await tx.onboardingItem.update({ where: { id: document.onboardingItemId }, data: { status: OnboardingStatus.PENDING, submittedAt: null } });
+    }
+    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: document.onboardingItem.startupId, entityType: 'OnboardingDocument', entityId: documentId, action: 'archived', summary: `${document.onboardingItem.startup.name}: archived ${document.name}` }) });
+  });
+  revalidatePath('/application');
+  refreshDocuments(document.onboardingItem.startupId);
+}
+
 function refreshDocuments(startupId: string) {
   revalidatePath('/');
   revalidatePath('/documents');

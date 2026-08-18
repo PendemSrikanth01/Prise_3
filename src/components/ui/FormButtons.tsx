@@ -11,5 +11,5 @@ export function SubmitButton({ children, className = '' }: { children: React.Rea
 
 export function ConfirmButton({ children, message, className = '', formAction }: { children: React.ReactNode; message: string; className?: string; formAction?: ServerFormAction }) {
   const { pending } = useFormStatus();
-  return <button disabled={pending} formAction={formAction} onClick={(event) => { if (!window.confirm(message)) event.preventDefault(); }} className={`rounded-button px-3 py-2 text-sm font-semibold text-danger hover:bg-danger-bg disabled:opacity-50 ${className}`}>{pending ? 'Working…' : children}</button>;
+  return <button disabled={pending} formAction={formAction} aria-label={typeof children === 'string' ? undefined : message} onClick={(event) => { if (!window.confirm(message)) event.preventDefault(); }} className={`rounded-button px-3 py-2 text-sm font-semibold text-danger hover:bg-danger-bg disabled:opacity-50 ${className}`}>{pending ? 'Working…' : children}</button>;
 }

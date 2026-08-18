@@ -5,45 +5,14 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { Prisma, Role, StartupMemberRole, StartupStatus } from '@prisma/client';
+import { hasPermission, hasStartupPermission, type Permission } from '@/lib/access-policy';
 import { prisma } from '@/lib/prisma';
+
+export { canDeleteTaskRecord, canEditTaskRecord, canManageStartupMembers, hasPermission, hasStartupPermission, isProgramRole } from '@/lib/access-policy';
+export type { Permission } from '@/lib/access-policy';
 
 export const SESSION_COOKIE = 'prise_session';
 const SESSION_HOURS = 12;
-
-export type Permission =
-  | 'startup:update'
-  | 'onboarding:review'
-  | 'milestone:assign'
-  | 'task:manage'
-  | 'milestone:review'
-  | 'deliverable:upload'
-  | 'deliverable:review'
-  | 'payment:manage'
-  | 'support:create'
-  | 'support:manage'
-  | 'session:manage'
-  | 'webinar:manage'
-  | 'notification:manage'
-  | 'people:manage'
-  | 'audit:view';
-
-const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
-  PROGRAM_LEAD: new Set([
-    'startup:update', 'onboarding:review', 'milestone:assign', 'task:manage',
-    'milestone:review', 'deliverable:upload', 'deliverable:review', 'payment:manage', 'support:create', 'support:manage',
-    'session:manage', 'webinar:manage', 'notification:manage', 'people:manage', 'audit:view',
-  ]),
-  PROGRAM_TEAM: new Set([
-    'startup:update', 'onboarding:review', 'milestone:assign', 'task:manage',
-    'milestone:review', 'deliverable:upload', 'deliverable:review', 'payment:manage', 'support:create', 'support:manage',
-    'session:manage', 'webinar:manage', 'notification:manage', 'audit:view',
-  ]),
-  INTERN: new Set(['task:manage', 'support:create', 'support:manage']),
-  MENTOR: new Set(['task:manage', 'milestone:review', 'deliverable:upload', 'deliverable:review', 'support:create', 'support:manage', 'session:manage']),
-  EXPERT: new Set(['support:create', 'support:manage']),
-  INVESTOR: new Set(),
-  FOUNDER: new Set(['task:manage', 'deliverable:upload', 'support:create']),
-};
 
 export type AuthUser = {
   id: string;
@@ -168,10 +137,6 @@ export async function requireSession(options?: { allowPasswordChange?: boolean; 
   return session;
 }
 
-export function hasPermission(role: Role, permission: Permission) {
-  return ROLE_PERMISSIONS[role].has(permission);
-}
-
 export async function requirePermission(permission: Permission) {
   const session = await requireSession();
   if (!hasPermission(session.user.role, permission)) throw new Error('Forbidden');
@@ -191,44 +156,12 @@ export function accessibleStartupWhere(user: AuthUser): Prisma.StartupWhereInput
   return { assignments: { some: { personId: user.id } } };
 }
 
-export function isProgramRole(role: Role) {
-  return role === Role.PROGRAM_LEAD || role === Role.PROGRAM_TEAM;
-}
-
 export async function startupMemberRole(startupId: string, personId: string) {
   const membership = await prisma.startupMembership.findUnique({
     where: { startupId_personId: { startupId, personId } },
     select: { role: true, isActive: true },
   });
   return membership?.isActive ? membership.role : null;
-}
-
-export function canEditTaskRecord(user: AuthUser, task: { createdById: string | null; assigneeId: string | null }) {
-  if (isProgramRole(user.role)) return true;
-  if (!hasPermission(user.role, 'task:manage')) return false;
-  return task.createdById === user.id || task.assigneeId === user.id;
-}
-
-export function canDeleteTaskRecord(user: AuthUser, task: { createdById: string | null }) {
-  if (isProgramRole(user.role)) return true;
-  return hasPermission(user.role, 'task:manage') && task.createdById === user.id;
-}
-
-export function canManageStartupMembers(role: Role, membershipRole: StartupMemberRole | null) {
-  return isProgramRole(role) || (role === Role.FOUNDER && (membershipRole === StartupMemberRole.OWNER || membershipRole === StartupMemberRole.ADMIN));
-}
-
-const STARTUP_MEMBER_PERMISSIONS: Record<StartupMemberRole, ReadonlySet<Permission>> = {
-  OWNER: new Set(['startup:update', 'task:manage', 'deliverable:upload', 'payment:manage', 'support:create']),
-  ADMIN: new Set(['startup:update', 'task:manage', 'deliverable:upload', 'payment:manage', 'support:create']),
-  MEMBER: new Set(['task:manage', 'deliverable:upload', 'support:create']),
-  FINANCE: new Set(['payment:manage', 'support:create']),
-  VIEWER: new Set(),
-};
-
-export function hasStartupPermission(role: Role, permission: Permission, membershipRole: StartupMemberRole | null) {
-  if (role !== Role.FOUNDER) return hasPermission(role, permission);
-  return membershipRole ? STARTUP_MEMBER_PERMISSIONS[membershipRole].has(permission) : false;
 }
 
 export async function requireStartupAccess(startupId: string, permission?: Permission) {

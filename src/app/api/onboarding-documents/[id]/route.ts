@@ -8,7 +8,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   const session = await requireSession({ allowPendingApplication: true });
   if (session.user.role === Role.INVESTOR) return new NextResponse('Not found', { status: 404 });
   const { id } = await params;
-  const document = await prisma.onboardingDocument.findFirst({ where: { id, onboardingItem: { startup: accessibleStartupWhere(session.user) } }, select: { name: true, storageKey: true, mimeType: true, sizeBytes: true } });
+  const document = await prisma.onboardingDocument.findFirst({ where: { id, archivedAt: null, onboardingItem: { startup: accessibleStartupWhere(session.user) } }, select: { name: true, storageKey: true, mimeType: true, sizeBytes: true } });
   if (!document) return new NextResponse('Not found', { status: 404 });
   try {
     const bytes = await readPrivateUpload(document.storageKey);

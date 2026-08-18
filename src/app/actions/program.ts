@@ -86,3 +86,18 @@ export async function updateProgramSubtaskAction(formData: FormData) {
   });
   refreshProgram();
 }
+
+export async function deleteProgramSubtaskAction(formData: FormData) {
+  const session = await programSession();
+  const id = requiredText(formData, 'subtaskId', 64);
+  const current = await prisma.programActionSubtask.findUniqueOrThrow({
+    where: { id },
+    include: { action: { select: { title: true } }, _count: { select: { evidence: true } } },
+  });
+  if (current._count.evidence > 0) throw new Error('Archive or reassign checklist evidence before deleting this item.');
+  await prisma.$transaction(async (tx) => {
+    await tx.activityLog.create({ data: auditData({ actor: session.user, entityType: 'ProgramActionSubtask', entityId: id, action: 'deleted', summary: `${current.action.title}: deleted checklist item ${current.title}` }) });
+    await tx.programActionSubtask.delete({ where: { id } });
+  });
+  refreshProgram();
+}

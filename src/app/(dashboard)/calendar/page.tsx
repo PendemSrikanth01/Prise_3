@@ -22,7 +22,7 @@ export default async function CalendarPage() {
           { startup: startupScope },
         ],
       },
-      include: { startup: { select: { name: true } }, facilitator: { select: { name: true } } },
+      include: { startup: { select: { name: true } }, facilitator: { select: { name: true } }, attendance: { where: { startup: startupScope }, include: { startup: { select: { name: true } } }, orderBy: { startup: { name: 'asc' } } } },
       orderBy: { startsAt: 'asc' },
       take: 500,
     }),
@@ -46,10 +46,12 @@ export default async function CalendarPage() {
       nextActions: session.nextActions,
       startupName: session.startup?.name ?? null,
       facilitatorName: session.facilitator?.name ?? null,
+      attendance: session.attendance,
     }))}
     startups={startups}
     facilitators={facilitators}
     canManageSessions={canManageSessions}
     canManageWebinars={canManageWebinars}
+    canManageAttendance={isProgram}
   />;
 }

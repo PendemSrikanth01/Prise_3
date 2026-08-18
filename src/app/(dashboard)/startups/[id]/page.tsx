@@ -26,7 +26,7 @@ export default async function StartupDetailPage({ params }: { params: Promise<{ 
   const startup = await prisma.startup.findFirst({
     where: { id, ...accessibleStartupWhere(session.user) },
     include: {
-      onboardingItems: { orderBy: { type: 'asc' }, include: { documents: { orderBy: { createdAt: 'desc' }, include: { uploader: { select: { name: true } } } } } },
+      onboardingItems: { orderBy: { type: 'asc' }, include: { documents: { where: { archivedAt: null }, orderBy: { createdAt: 'desc' }, include: { uploader: { select: { name: true } } } } } },
       milestones: { orderBy: [{ phase: 'asc' }, { dueDate: 'asc' }], include: {
         template: { select: { phaseName: true } },
         stakeholderStatuses: { include: { updatedBy: { select: { name: true } } } },
@@ -66,7 +66,7 @@ export default async function StartupDetailPage({ params }: { params: Promise<{ 
       <div className="space-y-5">
         {(startup.status === StartupStatus.APPLICATION_PENDING || startup.status === StartupStatus.REJECTED) && canReviewOnboarding ? <Section title="Application decision" subtitle="Approve a complete application or return it with one clear reason."><form action={reviewStartupApplicationAction} className="grid gap-3 sm:grid-cols-[180px_1fr_auto]"><input type="hidden" name="startupId" value={id} /><select name="decision" className={inputClass}><option value="APPROVE">Approve application</option><option value="REJECT">Return for changes</option></select><input name="remarks" placeholder="Decision note (required when returned)" className={inputClass} /><SubmitButton>Save decision</SubmitButton></form></Section> : null}
         <Section title="Onboarding decisions" subtitle="Submission, approval and revision status with reviewer attribution.">
-          <OnboardingChecklist items={startup.onboardingItems} canReview={canReviewOnboarding} canUpload={session.user.role === Role.FOUNDER && canUploadEvidence} />
+          <OnboardingChecklist items={startup.onboardingItems} canReview={canReviewOnboarding} canUpload={session.user.role === Role.FOUNDER && canUploadEvidence} currentUserId={session.user.id} />
         </Section>
 
         <MilestonePlan startupId={id} milestones={startup.milestones} role={session.user.role} canAssign={canAssign} canReview={canReviewMilestone} canUpload={canUploadEvidence} />
