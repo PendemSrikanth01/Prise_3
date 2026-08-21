@@ -44,7 +44,7 @@ export default async function StartupDetailPage({ params }: { params: Promise<{ 
   const memberRole = await startupMemberRole(id, session.user.id) ?? (session.user.founderOfStartupId === id ? StartupMemberRole.OWNER : null);
   const canEdit = hasStartupPermission(session.user.role, 'startup:update', memberRole);
   const canReviewOnboarding = hasPermission(session.user.role, 'onboarding:review');
-  const canAssign = hasPermission(session.user.role, 'milestone:assign');
+  const canAssign = isProgramRole(session.user.role) || session.user.role === Role.MENTOR || session.user.role === Role.FOUNDER;
   const canTask = hasStartupPermission(session.user.role, 'task:manage', memberRole);
   const canReviewMilestone = hasPermission(session.user.role, 'milestone:review');
   const canUploadEvidence = hasStartupPermission(session.user.role, 'deliverable:upload', memberRole);

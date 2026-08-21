@@ -3,13 +3,15 @@
 import { Bell, Menu, Search } from 'lucide-react';
 import { PriseWordmark } from '@/components/brand/BrandIdentity';
 
-export function TopBar({ onMenu, userName }: { onMenu: () => void; userName: string }) {
+export function TopBar({ onMenu, mobileOpen, userName }: { onMenu: () => void; mobileOpen: boolean; userName: string }) {
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-prise-border bg-white/88 px-4 backdrop-blur-xl sm:px-6">
       <div className="flex items-center gap-3">
         <button
           type="button"
           aria-label="Open navigation"
+          aria-controls="primary-navigation"
+          aria-expanded={mobileOpen}
           onClick={onMenu}
           className="rounded-button p-2 text-prise-text-secondary transition-colors hover:bg-prise-page md:hidden"
         >
@@ -30,7 +32,7 @@ export function TopBar({ onMenu, userName }: { onMenu: () => void; userName: str
 
       <div className="flex items-center gap-2">
         <div className="hidden text-right sm:block"><div className="text-xs font-semibold text-prise-text">{userName}</div><div className="text-[11px] text-prise-text-muted">Secure session</div></div>
-        <div className="relative rounded-full p-2 text-prise-text-secondary" aria-label="No new notifications">
+        <div className="relative rounded-full p-2 text-prise-text-secondary" role="status" aria-label="No new notifications">
           <Bell size={18} />
         </div>
       </div>

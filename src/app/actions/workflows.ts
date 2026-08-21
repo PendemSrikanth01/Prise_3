@@ -4,6 +4,7 @@ import { hash } from 'bcryptjs';
 import {
   AssignmentRole, MilestoneStakeholderLane, MilestoneStakeholderState, MilestoneStatus, NotificationKind, OnboardingStatus, PaymentStatus, Priority, ReviewDecision,
   Role, StartupMemberRole, StartupStatus, SupportRequestStatus, TaskStatus,
+  SupportAudience,
 } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { auditData } from '@/lib/audit';
@@ -13,6 +14,7 @@ import { prisma } from '@/lib/prisma';
 import { validPassword } from '@/lib/password';
 import { accountWelcomeTemplate, supportOpportunityTemplate } from '@/lib/notification-templates';
 import { setMilestoneLaneState } from '@/lib/milestone-state';
+import { canDeleteSupportRequest } from '@/lib/collaboration-policy';
 
 const APP_URL = () => process.env.APP_URL || 'http://127.0.0.1:3010';
 
@@ -128,9 +130,11 @@ export async function reviewOnboardingAction(formData: FormData) {
 
 export async function assignMilestonesAction(formData: FormData) {
   const startupId = requiredText(formData, 'startupId', 64);
-  const session = await requireStartupAccess(startupId, 'milestone:assign');
+  const session = await requireStartupAccess(startupId);
+  const canPlan = isProgramRole(session.user.role) || session.user.role === Role.MENTOR || session.user.role === Role.FOUNDER;
+  if (!canPlan) throw new Error('Only the startup, assigned mentor, or program team can update this plan.');
   const templateIds = [...new Set(formData.getAll('templateId').filter((value): value is string => typeof value === 'string'))];
-  if (templateIds.length < 10 || templateIds.length > 15) throw new Error('Select between 10 and 15 milestones.');
+  if (templateIds.length < 10 || templateIds.length > 20) throw new Error('Select between 10 and 20 milestones.');
   const [startup, templates, existing] = await Promise.all([
     prisma.startup.findUniqueOrThrow({ where: { id: startupId }, select: { name: true } }),
     prisma.milestoneTemplate.findMany({ where: { id: { in: templateIds }, isActive: true, scope: 'STARTUP' } }),
@@ -145,11 +149,11 @@ export async function assignMilestonesAction(formData: FormData) {
     for (const template of templates) {
       await tx.milestone.upsert({
         where: { startupId_templateId: { startupId, templateId: template.id } },
-        update: { phase: template.phase, title: template.title, keyActivity: template.keyActivity, deliverable: template.deliverable, effort: template.effort },
-        create: { startupId, templateId: template.id, phase: template.phase, title: template.title, keyActivity: template.keyActivity, deliverable: template.deliverable, effort: template.effort },
+        update: { phase: template.phase, title: template.title, keyActivity: template.keyActivity, deliverable: template.deliverable, effort: template.effort, isFinalized: isProgramRole(session.user.role) },
+        create: { startupId, templateId: template.id, phase: template.phase, title: template.title, keyActivity: template.keyActivity, deliverable: template.deliverable, effort: template.effort, isFinalized: isProgramRole(session.user.role) },
       });
     }
-    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'Startup', entityId: startupId, action: 'milestone_plan_updated', summary: `${startup.name}: milestone plan set to ${templates.length} outcomes`, meta: { selectedTemplateIds: templateIds, removed: removals.map((item) => item.templateId) } }) });
+    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'Startup', entityId: startupId, action: isProgramRole(session.user.role) ? 'milestone_plan_finalized' : 'milestone_plan_proposed', summary: `${startup.name}: ${templates.length} milestones ${isProgramRole(session.user.role) ? 'finalized' : 'proposed'}`, meta: { selectedTemplateIds: templateIds, removed: removals.map((item) => item.templateId) } }) });
   });
   refreshStartup(startupId);
 }
@@ -300,8 +304,18 @@ async function syncStartupPaidTotal(startupId: string) {
 export async function createSupportAction(formData: FormData) {
   const startupId = requiredText(formData, 'startupId', 64);
   const session = await requireStartupAccess(startupId, 'support:create');
+  const audience = enumValue(SupportAudience, formData.get('audience') ?? SupportAudience.STARTUP_AND_MENTORS, 'audience');
+  const requestedParticipantIds = [...new Set(formData.getAll('participantId').filter((value): value is string => typeof value === 'string'))];
+  const eligibleParticipants = requestedParticipantIds.length ? await prisma.person.findMany({
+    where: { id: { in: requestedParticipantIds }, isActive: true, OR: [{ role: { in: [Role.PROGRAM_LEAD, Role.PROGRAM_TEAM] } }, { founderOfStartupId: startupId }, { startupMemberships: { some: { startupId, isActive: true } } }, { assignments: { some: { startupId } } }] },
+    select: { id: true },
+  }) : [];
+  if (eligibleParticipants.length !== requestedParticipantIds.length) throw new Error('One or more selected people do not belong to this startup workspace.');
+  const participantIds = new Set(eligibleParticipants.map((person) => person.id));
+  participantIds.add(session.user.id);
+  if (audience === SupportAudience.SELECTED_PEOPLE && participantIds.size < 2) throw new Error('Select at least one person for this conversation.');
   const request = await prisma.$transaction(async (tx) => {
-    const created = await tx.supportRequest.create({ data: { startupId, requestedById: session.user.id, title: requiredText(formData, 'title', 220), description: optionalText(formData, 'description', 2500), priority: enumValue(Priority, formData.get('priority'), 'priority'), dueDate: optionalDate(formData, 'dueDate') } });
+    const created = await tx.supportRequest.create({ data: { startupId, requestedById: session.user.id, title: requiredText(formData, 'title', 220), description: optionalText(formData, 'description', 2500), priority: enumValue(Priority, formData.get('priority'), 'priority'), dueDate: optionalDate(formData, 'dueDate'), audience, participants: { create: [...participantIds].map((personId) => ({ personId })) } } });
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'SupportRequest', entityId: created.id, action: 'created', summary: `Requested support: ${created.title}` }) });
     return created;
   });
@@ -331,8 +345,14 @@ export async function updateSupportAction(formData: FormData) {
   const request = await prisma.supportRequest.findUniqueOrThrow({ where: { id: requestId } });
   const session = await requireStartupAccess(request.startupId, 'support:manage');
   const status = enumValue(SupportRequestStatus, formData.get('status'), 'status');
+  const programManager = isProgramRole(session.user.role);
+  const requestedAssigneeId = programManager ? optionalText(formData, 'assignedToId', 64) : request.assignedToId;
+  if (programManager && requestedAssigneeId) {
+    const validAssignee = await prisma.person.count({ where: { id: requestedAssigneeId, isActive: true, OR: [{ role: { in: [Role.PROGRAM_LEAD, Role.PROGRAM_TEAM] } }, { assignments: { some: { startupId: request.startupId } } }] } });
+    if (!validAssignee) throw new Error('Support owner must belong to this startup workspace.');
+  }
   await prisma.$transaction(async (tx) => {
-    await tx.supportRequest.update({ where: { id: requestId }, data: { status, assignedToId: optionalText(formData, 'assignedToId', 64), outcome: optionalText(formData, 'outcome', 2000), dueDate: optionalDate(formData, 'dueDate'), resolvedAt: status === SupportRequestStatus.RESOLVED ? request.resolvedAt ?? new Date() : null } });
+    await tx.supportRequest.update({ where: { id: requestId }, data: { status, assignedToId: requestedAssigneeId, outcome: optionalText(formData, 'outcome', 2000), dueDate: programManager ? optionalDate(formData, 'dueDate') : request.dueDate, resolvedAt: status === SupportRequestStatus.RESOLVED ? request.resolvedAt ?? new Date() : null } });
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: request.startupId, entityType: 'SupportRequest', entityId: requestId, action: 'updated', summary: `${request.title}: ${status.replaceAll('_', ' ')}`, meta: { from: request.status, to: status } }) });
   });
   refreshStartup(request.startupId);
@@ -342,6 +362,7 @@ export async function deleteSupportAction(formData: FormData) {
   const requestId = requiredText(formData, 'requestId', 64);
   const request = await prisma.supportRequest.findUniqueOrThrow({ where: { id: requestId } });
   const session = await requireStartupAccess(request.startupId, 'support:manage');
+  if (!canDeleteSupportRequest(session.user.role)) throw new Error('Only the program team can delete support requests.');
   await prisma.$transaction(async (tx) => {
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: request.startupId, entityType: 'SupportRequest', entityId: requestId, action: 'deleted', summary: `Deleted support request: ${request.title}` }) });
     await tx.supportRequest.delete({ where: { id: requestId } });

@@ -91,6 +91,13 @@ enum AssignmentRole {
   INVESTOR
 }
 
+enum MentorMeetingMode {
+  ONLINE
+  OFFLINE
+  HYBRID
+  FLEXIBLE
+}
+
 enum Priority {
   HIGH
   NORMAL
@@ -119,6 +126,13 @@ enum SupportRequestStatus {
   IN_PROGRESS
   RESOLVED
   CANCELLED
+}
+
+enum SupportAudience {
+  STARTUP_TEAM
+  STARTUP_AND_MENTORS
+  PROGRAM_PRIVATE
+  SELECTED_PEOPLE
 }
 
 enum SessionType {
@@ -229,17 +243,30 @@ enum MilestoneStakeholderState {
 // ---------------------------------------------------------------------------
 
 model Person {
-  id                 String    @id @default(cuid())
-  name               String
-  email              String    @unique
-  phone              String?
-  role               Role
-  isActive           Boolean   @default(true)
-  mustChangePassword Boolean   @default(true)
-  lastLoginAt        DateTime?
-  passwordHash       String // Auth.js credentials provider — bcrypt hash
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id                   String            @id @default(cuid())
+  name                 String
+  email                String            @unique
+  phone                String?
+  role                 Role
+  isActive             Boolean           @default(true)
+  mustChangePassword   Boolean           @default(true)
+  lastLoginAt          DateTime?
+  passwordHash         String // Auth.js credentials provider — bcrypt hash
+  organization         String?
+  designation          String?
+  professionalBio      String?
+  expertiseAreas       String[]          @default([])
+  preferredSectors     String[]          @default([])
+  languages            String[]          @default([])
+  yearsExperience      Int?
+  profilePhotoKey      String?
+  profilePhotoMimeType String?
+  maxStartupCapacity   Int               @default(4)
+  acceptingMentees     Boolean           @default(true)
+  preferredMeetingMode MentorMeetingMode @default(FLEXIBLE)
+  timezone             String            @default("Asia/Kolkata")
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
 
   // Founder-only: the single startup this person represents
   founderOfStartupId String?  @unique
@@ -270,6 +297,10 @@ model Person {
   uploadedProgramEvidence ProgramActionEvidence[]      @relation("ProgramEvidenceUploader")
   reviewedProgramEvidence ProgramActionEvidence[]      @relation("ProgramEvidenceReviewer")
   recordedAttendance      AttendanceRecord[]           @relation("AttendanceRecorder")
+  mentorAvailability      MentorAvailability[]         @relation("MentorAvailability")
+  taskComments            TaskComment[]                @relation("TaskCommentAuthor")
+  supportMessages         SupportMessage[]             @relation("SupportMessageAuthor")
+  supportParticipants     SupportParticipant[]         @relation("SupportParticipantPerson")
 
   @@index([role])
   @@index([isActive])
@@ -337,6 +368,23 @@ model StartupMembership {
   @@index([startupId, role])
 }
 
+model MentorAvailability {
+  id          String            @id @default(cuid())
+  mentorId    String
+  dayOfWeek   Int
+  startMinute Int
+  endMinute   Int
+  mode        MentorMeetingMode @default(FLEXIBLE)
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  mentor Person @relation("MentorAvailability", fields: [mentorId], references: [id], onDelete: Cascade)
+
+  @@unique([mentorId, dayOfWeek, startMinute, endMinute])
+  @@index([mentorId, isActive, dayOfWeek])
+}
+
 model InvestorStartupShare {
   id               String   @id @default(cuid())
   startupId        String
@@ -390,6 +438,8 @@ model Startup {
   paymentInstallments PaymentInstallment[]
   attendanceRecords   AttendanceRecord[]
   activityLogs        ActivityLog[]          @relation("StartupActivity")
+  taskComments        TaskComment[]
+  supportMessages     SupportMessage[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -484,6 +534,7 @@ model Milestone {
   evidenceUrl String?
   reviewerId  String?
   priority    Priority        @default(NORMAL)
+  isFinalized Boolean         @default(false)
 
   startup             Startup                      @relation(fields: [startupId], references: [id], onDelete: Cascade)
   template            MilestoneTemplate?           @relation(fields: [templateId], references: [id])
@@ -522,10 +573,11 @@ model Task {
   completedAt   DateTime?
   blockedReason String?
 
-  startup   Startup?   @relation(fields: [startupId], references: [id], onDelete: Cascade)
-  milestone Milestone? @relation(fields: [milestoneId], references: [id])
-  assignee  Person?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  createdBy Person?    @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  startup   Startup?      @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  milestone Milestone?    @relation(fields: [milestoneId], references: [id])
+  assignee  Person?       @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdBy Person?       @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  comments  TaskComment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -534,6 +586,24 @@ model Task {
   @@index([createdById, createdAt])
   @@index([startupId])
   @@index([milestoneId])
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  taskId    String
+  startupId String
+  authorId  String?
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  task    Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  startup Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  author  Person? @relation("TaskCommentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
+  @@index([startupId, createdAt])
+  @@index([authorId, createdAt])
 }
 
 model Deliverable {
@@ -701,16 +771,50 @@ model SupportRequest {
   status        SupportRequestStatus @default(OPEN)
   outcome       String?
   dueDate       DateTime?
+  audience      SupportAudience      @default(STARTUP_AND_MENTORS)
   resolvedAt    DateTime?
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
 
-  startup     Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
-  requestedBy Person? @relation("SupportRequester", fields: [requestedById], references: [id])
-  assignedTo  Person? @relation("SupportAssignee", fields: [assignedToId], references: [id])
+  startup      Startup              @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  requestedBy  Person?              @relation("SupportRequester", fields: [requestedById], references: [id])
+  assignedTo   Person?              @relation("SupportAssignee", fields: [assignedToId], references: [id])
+  messages     SupportMessage[]
+  participants SupportParticipant[]
 
   @@index([startupId, status])
   @@index([assignedToId, status])
+}
+
+model SupportParticipant {
+  id               String   @id @default(cuid())
+  supportRequestId String
+  personId         String
+  createdAt        DateTime @default(now())
+
+  supportRequest SupportRequest @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+  person         Person         @relation("SupportParticipantPerson", fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([supportRequestId, personId])
+  @@index([personId, supportRequestId])
+}
+
+model SupportMessage {
+  id               String   @id @default(cuid())
+  supportRequestId String
+  startupId        String
+  authorId         String?
+  body             String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  supportRequest SupportRequest @relation(fields: [supportRequestId], references: [id], onDelete: Cascade)
+  startup        Startup        @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  author         Person?        @relation("SupportMessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([supportRequestId, createdAt])
+  @@index([startupId, createdAt])
+  @@index([authorId, createdAt])
 }
 
 model Session {
@@ -730,6 +834,11 @@ model Session {
   meetingUrl      String?
   outcome         String?
   nextActions     String?
+  insights        String?
+  learnings       String?
+  decisions       String?
+  followUpAt      DateTime?
+  recurrenceGroupId String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -740,6 +849,7 @@ model Session {
   @@index([startsAt, status])
   @@index([startupId])
   @@index([facilitatorId, startsAt])
+  @@index([recurrenceGroupId, startsAt])
   @@index([participantIds], type: Gin)
 }
 

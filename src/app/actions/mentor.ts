@@ -4,6 +4,7 @@ import {
   AssignmentRole, AttendanceMode, NotificationKind, NotificationStatus, Role, SessionStatus, SessionType,
 } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
+import { randomUUID } from 'node:crypto';
 import { auditData } from '@/lib/audit';
 import { sendQueuedNotification } from '@/lib/email';
 import { enumValue, optionalDateTime, optionalText, requiredDateTime, requiredText } from '@/lib/form';
@@ -22,6 +23,25 @@ function refreshMentorWorkspace(startupId?: string | null) {
 
 function validateTimes(startsAt: Date, endsAt: Date | null) {
   if (endsAt && endsAt <= startsAt) throw new Error('End time must be after start time.');
+}
+
+function recurrenceOccurrences(formData: FormData, startsAt: Date, endsAt: Date | null) {
+  if (formData.get('recurring') !== 'on') return { groupId: null, occurrences: [{ startsAt, endsAt }] };
+  const untilValue = formData.get('recurrenceUntil');
+  if (typeof untilValue !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(untilValue)) throw new Error('Choose when the recurring schedule ends.');
+  const until = new Date(`${untilValue}T23:59:59`);
+  if (until < startsAt) throw new Error('Recurring end date must be after the first meeting.');
+  const selectedDays = new Set(formData.getAll('recurrenceDay').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6));
+  if (!selectedDays.size) selectedDays.add(startsAt.getDay());
+  const duration = endsAt ? endsAt.getTime() - startsAt.getTime() : null;
+  const occurrences: Array<{ startsAt: Date; endsAt: Date | null }> = [];
+  const cursor = new Date(startsAt);
+  while (cursor <= until && occurrences.length < 90) {
+    if (selectedDays.has(cursor.getDay())) occurrences.push({ startsAt: new Date(cursor), endsAt: duration === null ? null : new Date(cursor.getTime() + duration) });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  if (!occurrences.length) throw new Error('No meetings fall within the selected recurrence range.');
+  return { groupId: randomUUID(), occurrences };
 }
 
 export async function createSessionAction(formData: FormData) {
@@ -44,24 +64,27 @@ export async function createSessionAction(formData: FormData) {
   const participants = [...new Set([facilitator.id, startup.founder?.isActive ? startup.founder.id : null].filter((id): id is string => Boolean(id)))];
   const title = requiredText(formData, 'title', 180);
   const meetingUrl = optionalText(formData, 'meetingUrl', 1000);
+  const recurrence = recurrenceOccurrences(formData, startsAt, endsAt);
 
   const created = await prisma.$transaction(async (tx) => {
-    const session = await tx.session.create({
+    const sessions = [];
+    for (const occurrence of recurrence.occurrences) sessions.push(await tx.session.create({
       data: {
         startupId,
         facilitatorId,
         title,
         description: optionalText(formData, 'description', 2500),
         type: enumValue(SessionType, formData.get('type'), 'type'),
-        startsAt,
-        endsAt,
+        startsAt: occurrence.startsAt,
+        endsAt: occurrence.endsAt,
         participantIds: participants,
         meetingProvider: optionalText(formData, 'meetingProvider', 80),
         meetingUrl,
+        recurrenceGroupId: recurrence.groupId,
       },
-    });
-    await tx.activityLog.create({ data: auditData({ actor: actor.user, startupId, entityType: 'Session', entityId: session.id, action: 'created', summary: `${startup.name}: scheduled ${title}` }) });
-    return session;
+    }));
+    await tx.activityLog.create({ data: auditData({ actor: actor.user, startupId, entityType: 'Session', entityId: sessions[0].id, action: recurrence.groupId ? 'recurring_series_created' : 'created', summary: `${startup.name}: scheduled ${title}${recurrence.groupId ? ` (${sessions.length} meetings)` : ''}` }) });
+    return sessions[0];
   });
 
   const recipients = [facilitator, ...(startup.founder?.isActive ? [startup.founder] : [])];
@@ -96,6 +119,10 @@ export async function updateSessionAction(formData: FormData) {
         meetingUrl: optionalText(formData, 'meetingUrl', 1000),
         outcome: optionalText(formData, 'outcome', 2500),
         nextActions: optionalText(formData, 'nextActions', 2500),
+        insights: optionalText(formData, 'insights', 2500),
+        learnings: optionalText(formData, 'learnings', 2500),
+        decisions: optionalText(formData, 'decisions', 2500),
+        followUpAt: optionalDateTime(formData, 'followUpAt'),
       },
     });
     await tx.activityLog.create({ data: auditData({ actor: actor.user, startupId: existing.startupId, entityType: 'Session', entityId: sessionId, action: 'updated', summary: `${session.title}: ${status.toLowerCase()}`, meta: { from: existing.status, to: status } }) });
@@ -159,23 +186,26 @@ export async function createWebinarAction(formData: FormData) {
   const startsAt = requiredDateTime(formData, 'startsAt');
   const endsAt = optionalDateTime(formData, 'endsAt');
   validateTimes(startsAt, endsAt);
+  const recurrence = recurrenceOccurrences(formData, startsAt, endsAt);
   const webinar = await prisma.$transaction(async (tx) => {
-    const session = await tx.session.create({
+    const sessions = [];
+    for (const occurrence of recurrence.occurrences) sessions.push(await tx.session.create({
       data: {
         title: requiredText(formData, 'title', 180),
         description: optionalText(formData, 'description', 2500),
         type: SessionType.WORKSHOP,
-        startsAt,
-        endsAt,
+        startsAt: occurrence.startsAt,
+        endsAt: occurrence.endsAt,
         participantIds: [],
         isCohortWide: true,
         meetingProvider: optionalText(formData, 'meetingProvider', 80),
         meetingUrl: optionalText(formData, 'meetingUrl', 1000),
         facilitatorId: optionalText(formData, 'facilitatorId', 64),
+        recurrenceGroupId: recurrence.groupId,
       },
-    });
-    await tx.activityLog.create({ data: auditData({ actor: actor.user, entityType: 'Session', entityId: session.id, action: 'webinar_created', summary: `Scheduled webinar: ${session.title}` }) });
-    return session;
+    }));
+    await tx.activityLog.create({ data: auditData({ actor: actor.user, entityType: 'Session', entityId: sessions[0].id, action: recurrence.groupId ? 'recurring_webinar_series_created' : 'webinar_created', summary: `Scheduled webinar: ${sessions[0].title}${recurrence.groupId ? ` (${sessions.length} events)` : ''}` }) });
+    return sessions[0];
   });
   refreshMentorWorkspace(webinar.startupId);
 }

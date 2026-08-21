@@ -11,10 +11,11 @@ export function DashboardShell({ children, user, canViewAudit, canManagePeople }
 
   return (
     <div className="min-h-screen md:flex">
+      <a href="#main-content" className="fixed left-3 top-3 z-[70] -translate-y-20 rounded-button bg-prise-sidebar px-4 py-2 text-sm font-semibold text-white shadow-card transition-transform focus:translate-y-0">Skip to main content</a>
       <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} user={user} canViewAudit={canViewAudit} canManagePeople={canManagePeople} />
       <div className="min-w-0 flex-1">
-        <TopBar onMenu={() => setMobileOpen(true)} userName={user.name} />
-        <main>{children}</main>
+        <TopBar onMenu={() => setMobileOpen(true)} mobileOpen={mobileOpen} userName={user.name} />
+        <main id="main-content" tabIndex={-1}>{children}</main>
       </div>
     </div>
   );
