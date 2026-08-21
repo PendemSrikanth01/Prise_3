@@ -1,11 +1,9 @@
 'use client';
 
-import { MentorMeetingMode } from '@prisma/client';
 import Image from 'next/image';
-import { Award, BriefcaseBusiness, CalendarClock, Camera, Languages } from 'lucide-react';
-import { addMentorAvailabilityAction, removeMentorAvailabilityAction, updateMentorPhotoAction, updateMentorProfileAction } from '@/app/actions/mentor-profile';
-import { ConfirmButton, SubmitButton } from '@/components/ui/FormButtons';
-import { minuteToTime, WEEKDAYS } from '@/lib/mentor-profile';
+import { Award, BriefcaseBusiness, Camera, Languages } from 'lucide-react';
+import { updateMentorPhotoAction, updateMentorProfileAction } from '@/app/actions/mentor-profile';
+import { SubmitButton } from '@/components/ui/FormButtons';
 
 type MentorProfileData = {
   id: string;
@@ -22,9 +20,6 @@ type MentorProfileData = {
   profilePhotoKey: string | null;
   maxStartupCapacity: number;
   acceptingMentees: boolean;
-  preferredMeetingMode: MentorMeetingMode;
-  timezone: string;
-  mentorAvailability: Array<{ id: string; dayOfWeek: number; startMinute: number; endMinute: number; mode: MentorMeetingMode }>;
   _count: { assignments: number };
 };
 
@@ -57,18 +52,6 @@ export function MentorProfileEditor({ mentor, canEdit }: { mentor: MentorProfile
       </form> : <div className="mt-5 grid gap-4 text-sm sm:grid-cols-2"><ReadField label="Experience" value={mentor.yearsExperience === null ? 'Not added' : `${mentor.yearsExperience} years`} /><ReadField label="Expertise" value={mentor.expertiseAreas.join(', ') || 'Not added'} /><ReadField label="Preferred sectors" value={mentor.preferredSectors.join(', ') || 'Not added'} /><ReadField label="Languages" value={mentor.languages.join(', ') || 'Not added'} /><div className="sm:col-span-2"><ReadField label="Professional bio" value={mentor.professionalBio || 'Not added'} /></div></div>}
     </section>
 
-    <section className="mt-5 rounded-card border bg-white p-5 shadow-card sm:p-6" aria-labelledby="mentor-availability">
-      <div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-info-bg text-info"><CalendarClock size={19} /></div><div><h2 id="mentor-availability" className="text-lg font-bold">Recurring availability</h2><p className="mt-1 text-sm text-prise-text-secondary">Simple office-hour windows for planning. Confirmed sessions still belong in Calendar.</p></div></div>
-      {canEdit ? <form action={addMentorAvailabilityAction} className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_140px_140px_150px_auto] lg:items-end">
-        <input type="hidden" name="mentorId" value={mentor.id} />
-        <label className={labelClass}>Weekday<select name="dayOfWeek" defaultValue={1} className={inputClass}>{WEEKDAYS.map((day, index) => <option key={day} value={index}>{day}</option>)}</select></label>
-        <label className={labelClass}>From<input name="startTime" type="time" required defaultValue="10:00" className={inputClass} /></label>
-        <label className={labelClass}>To<input name="endTime" type="time" required defaultValue="12:00" className={inputClass} /></label>
-        <label className={labelClass}>Mode<select name="mode" defaultValue={MentorMeetingMode.ONLINE} className={inputClass}>{Object.values(MentorMeetingMode).map((mode) => <option key={mode} value={mode}>{mode.toLowerCase()}</option>)}</select></label>
-        <SubmitButton>Add window</SubmitButton>
-      </form> : null}
-      <div className="mt-5 divide-y border-t">{mentor.mentorAvailability.map((slot) => <form action={removeMentorAvailabilityAction} key={slot.id} className="flex flex-wrap items-center gap-3 py-3 text-sm"><input type="hidden" name="availabilityId" value={slot.id} /><div className="min-w-28 font-semibold">{WEEKDAYS[slot.dayOfWeek]}</div><div className="min-w-28 text-prise-text-secondary">{minuteToTime(slot.startMinute)}–{minuteToTime(slot.endMinute)}</div><span className="rounded-pill bg-info-bg px-2.5 py-1 text-xs font-semibold text-info">{slot.mode.toLowerCase()}</span><div className="flex-1" />{canEdit ? <ConfirmButton message="Remove this recurring availability window?">Remove</ConfirmButton> : null}</form>)}{mentor.mentorAvailability.length === 0 ? <div className="py-6 text-center text-sm text-prise-text-secondary">No recurring availability has been added.</div> : null}</div>
-    </section>
   </div>;
 }
 

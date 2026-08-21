@@ -20,7 +20,7 @@ const PROGRAM_NAV: NavSection[] = [
     { href: '/work', label: 'Work', icon: ListChecks },
     { href: '/calendar', label: 'Calendar', icon: CalendarDays },
     { href: '/tickets', label: 'Tickets', icon: LifeBuoy },
-    { href: '/documents', label: 'Files & Evidence', icon: FileText },
+    { href: '/resources', label: 'Resources', icon: FileText },
   ] },
   { label: 'People & program', items: [
     { href: '/people', label: 'People', icon: Users },
@@ -39,14 +39,14 @@ const MENTOR_NAV: NavSection[] = [{ items: [
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
   { href: '/tickets', label: 'Tickets', icon: LifeBuoy },
   { href: '/reviews', label: 'Reviews', icon: Star },
-  { href: '/documents', label: 'Files & Evidence', icon: FileText },
+  { href: '/resources', label: 'Resources', icon: FileText },
 ] }];
 
 const FOUNDER_NAV: NavSection[] = [{ items: [
   { href: '/', label: 'Overview', icon: LayoutDashboard },
   { href: '/my-startup', label: 'My Startup', icon: Building2 },
   { href: '/work', label: 'Tasks', icon: ListChecks },
-  { href: '/documents', label: 'Files & Evidence', icon: FileText },
+  { href: '/resources', label: 'Resources', icon: FileText },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
   { href: '/tickets', label: 'Tickets', icon: LifeBuoy },
   { href: '/payments', label: 'Payments', icon: IndianRupee },
@@ -58,6 +58,7 @@ const DELIVERY_NAV: NavSection[] = [{ items: [
   { href: '/work', label: 'Tasks', icon: ListChecks },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
   { href: '/tickets', label: 'Tickets', icon: LifeBuoy },
+  { href: '/resources', label: 'Resources', icon: FileText },
 ] }];
 
 const INVESTOR_NAV: NavSection[] = [{ items: [

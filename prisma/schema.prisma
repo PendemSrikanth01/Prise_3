@@ -301,6 +301,7 @@ model Person {
   taskComments            TaskComment[]                @relation("TaskCommentAuthor")
   supportMessages         SupportMessage[]             @relation("SupportMessageAuthor")
   supportParticipants     SupportParticipant[]         @relation("SupportParticipantPerson")
+  uploadedResources       Resource[]                   @relation("ResourceUploader")
 
   @@index([role])
   @@index([isActive])
@@ -633,6 +634,31 @@ model Deliverable {
   @@index([status, createdAt])
   @@index([reviewerId])
   @@index([milestoneId, stakeholderLane, createdAt])
+}
+
+// Reusable program material shared across the incubation workspace.
+// Startup-specific proof remains attached to Deliverable records above.
+model Resource {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  category    String?
+  phase       Int?
+  externalUrl String?
+  storageKey  String?
+  fileName    String?
+  mimeType    String?
+  sizeBytes   Int?
+  uploaderId  String?
+  isArchived  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  uploader Person? @relation("ResourceUploader", fields: [uploaderId], references: [id], onDelete: SetNull)
+
+  @@index([isArchived, createdAt])
+  @@index([category, phase])
+  @@index([uploaderId])
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { IndianRupee, MapPin, Pencil, Plus, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, IndianRupee, MapPin, Pencil, Plus, ShieldCheck, Target } from 'lucide-react';
 import { DeliverableStatus, MilestoneStatus, PaymentStatus, Priority, Role, StartupMemberRole, StartupStatus, SupportRequestStatus, TaskStatus } from '@prisma/client';
 import {
   createPaymentAction, createStartupMemberAction, createSupportAction, createTaskAction, deletePaymentAction, deleteSupportAction,
@@ -8,7 +8,6 @@ import {
   reviewStartupApplicationAction, updateStartupMemberAction,
 } from '@/app/actions/workflows';
 import { MilestonePlan } from '@/components/startups/MilestonePlan';
-import { OnboardingChecklist } from '@/components/startups/OnboardingChecklist';
 import { ConfirmButton, SubmitButton } from '@/components/ui/FormButtons';
 import { accessibleStartupWhere, canDeleteTaskRecord, canEditTaskRecord, canManageStartupMembers, hasPermission, hasStartupPermission, isProgramRole, requireSession, startupMemberRole } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
@@ -26,7 +25,6 @@ export default async function StartupDetailPage({ params }: { params: Promise<{ 
   const startup = await prisma.startup.findFirst({
     where: { id, ...accessibleStartupWhere(session.user) },
     include: {
-      onboardingItems: { orderBy: { type: 'asc' }, include: { documents: { where: { archivedAt: null }, orderBy: { createdAt: 'desc' }, include: { uploader: { select: { name: true } } } } } },
       milestones: { orderBy: [{ phase: 'asc' }, { dueDate: 'asc' }], include: {
         template: { select: { phaseName: true } },
         stakeholderStatuses: { include: { updatedBy: { select: { name: true } } } },
@@ -55,18 +53,37 @@ export default async function StartupDetailPage({ params }: { params: Promise<{ 
   const paid = Number(startup.totalFeePaid ?? 0);
   const agreed = Number(startup.agreedFee ?? 0);
   const feeProgress = agreed > 0 ? Math.min(100, Math.round((paid / agreed) * 100)) : 0;
+  const completedMilestones = startup.milestones.filter((item) => item.status === MilestoneStatus.APPROVED).length;
+  const milestoneProgress = startup.milestones.length ? Math.round((completedMilestones / startup.milestones.length) * 100) : 0;
+  const currentMilestone = startup.milestones.find((item) => item.status !== MilestoneStatus.APPROVED) ?? startup.milestones.at(-1);
+  const currentPhase = currentMilestone?.phase ?? 1;
+  const currentPhaseName = currentMilestone?.template?.phaseName ?? `Phase ${currentPhase}`;
+  const priorityMilestones = startup.milestones.filter((item) => item.status !== MilestoneStatus.APPROVED).sort((a, b) => Number(b.priority === Priority.HIGH) - Number(a.priority === Priority.HIGH) || a.phase - b.phase).slice(0, 3);
+  const overdueTasks = startup.tasks.filter((item) => item.status !== TaskStatus.DONE && item.dueDate && item.dueDate < new Date()).length;
+  const revisionItems = startup.milestones.filter((item) => item.status === MilestoneStatus.NEEDS_REVISION || item.stakeholderStatuses.some((lane) => lane.state === 'NEEDS_REVISION' || lane.state === 'BLOCKED')).length;
+  const overduePayments = startup.paymentInstallments.filter((item) => item.status === PaymentStatus.OVERDUE).length;
+  const riskReasons = [
+    overdueTasks ? `${overdueTasks} overdue task${overdueTasks === 1 ? '' : 's'}` : null,
+    revisionItems ? `${revisionItems} milestone${revisionItems === 1 ? '' : 's'} need correction` : null,
+    overduePayments ? `${overduePayments} overdue payment${overduePayments === 1 ? '' : 's'}` : null,
+    startup.status === StartupStatus.NEEDS_ATTENTION ? startup.healthStatus || 'Program team marked this startup for attention' : null,
+  ].filter((item): item is string => Boolean(item));
+  const healthLabel = startup.status === StartupStatus.NEEDS_ATTENTION || riskReasons.length >= 2 ? 'At risk' : riskReasons.length ? 'Attention' : 'Healthy';
+  const healthTone = healthLabel === 'Healthy' ? 'bg-success-bg text-success' : healthLabel === 'Attention' ? 'bg-warning-bg text-warning' : 'bg-danger-bg text-danger';
 
   return <div className="mx-auto w-full max-w-[1450px] p-4 sm:p-6 lg:p-8">
     <div className="mb-5 flex items-center justify-between"><Link href="/startups" className="text-sm font-semibold text-prise-text-secondary hover:text-prise-primary">← Back to startups</Link>{canEdit ? <Link href={`/startups/${id}/edit`} className="inline-flex items-center gap-2 rounded-button border bg-white px-3 py-2 text-sm font-semibold"><Pencil size={15} /> Edit profile</Link> : null}</div>
     <div className="rounded-card bg-prise-sidebar p-6 text-white shadow-card sm:p-8"><div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between"><div><div className="text-sm text-white/55">PRISE 3.0 · Startup 360</div><h1 className="mt-2 max-w-4xl text-2xl font-bold tracking-[-.025em] sm:text-3xl">{startup.name}</h1><div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm text-white/68"><span>{startup.founderName}</span><span>{startup.sector}</span>{startup.operationLocation ? <span className="inline-flex items-center gap-1.5"><MapPin size={14} />{startup.operationLocation}, {startup.state}</span> : null}</div></div><div className="rounded-button bg-white/9 px-4 py-3"><div className="text-xs uppercase tracking-[.08em] text-white/48">Operating status</div><div className="mt-1 text-sm font-semibold">{label(startup.status)}</div></div></div></div>
 
-    <nav className="sticky top-0 z-10 mt-4 flex gap-1 overflow-x-auto rounded-xl border border-prise-border bg-white/95 p-1.5 shadow-sm backdrop-blur" aria-label="Startup workspace shortcuts"><a href="#overview" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Overview</a><a href="#milestones" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Milestones</a><Link href="/work" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Tasks</Link><Link href="/documents" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Files</Link><Link href="/calendar" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Calendar</Link><Link href="/support" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Support</Link></nav>
+    <nav className="sticky top-0 z-10 mt-4 flex gap-1 overflow-x-auto rounded-xl border border-prise-border bg-white/95 p-1.5 shadow-sm backdrop-blur" aria-label="Startup workspace shortcuts"><a href="#overview" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Overview</a><a href="#milestones" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Milestones</a><Link href="/work" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Tasks</Link><Link href="/resources" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Resources</Link><Link href="/calendar" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Calendar</Link><Link href="/tickets" className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold text-prise-text-secondary hover:bg-prise-page">Tickets</Link></nav>
 
     <div id="overview" className="mt-5 grid scroll-mt-20 gap-5 xl:grid-cols-[1.2fr_.8fr]">
       <div className="space-y-5">
         {(startup.status === StartupStatus.APPLICATION_PENDING || startup.status === StartupStatus.REJECTED) && canReviewOnboarding ? <Section title="Application decision" subtitle="Approve a complete application or return it with one clear reason."><form action={reviewStartupApplicationAction} className="grid gap-3 sm:grid-cols-[180px_1fr_auto]"><input type="hidden" name="startupId" value={id} /><select name="decision" className={inputClass}><option value="APPROVE">Approve application</option><option value="REJECT">Return for changes</option></select><input name="remarks" placeholder="Decision note (required when returned)" className={inputClass} /><SubmitButton>Save decision</SubmitButton></form></Section> : null}
-        <Section title="Onboarding decisions" subtitle="Submission, approval and revision status with reviewer attribution.">
-          <OnboardingChecklist items={startup.onboardingItems} canReview={canReviewOnboarding} canUpload={session.user.role === Role.FOUNDER && canUploadEvidence} currentUserId={session.user.id} />
+        <Section title="Startup overview" subtitle="The essential profile, health and next priorities in one decision-ready view.">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><MetricCard label="Health" value={healthLabel} tone={healthTone} /><MetricCard label="Milestones done" value={`${completedMilestones}/${startup.milestones.length}`} /><MetricCard label="Current phase" value={`${currentPhase}`} detail={currentPhaseName} /><MetricCard label="Overall progress" value={`${milestoneProgress}%`} /></div>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2"><div className="rounded-xl bg-prise-page p-4"><div className="text-xs font-semibold uppercase tracking-[.1em] text-prise-text-secondary">Profile details</div><dl className="mt-3 grid grid-cols-[100px_1fr] gap-x-3 gap-y-2 text-sm"><dt className="text-prise-text-muted">Founder</dt><dd className="font-medium">{startup.founderName}</dd><dt className="text-prise-text-muted">Sector</dt><dd className="font-medium">{startup.sector || 'Not added'}</dd><dt className="text-prise-text-muted">Location</dt><dd className="font-medium">{startup.operationLocation || startup.state || 'Not added'}</dd><dt className="text-prise-text-muted">Structure</dt><dd className="font-medium">{startup.legalStructure || 'Not added'}</dd></dl></div><div className="rounded-xl bg-prise-page p-4"><div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.1em] text-prise-text-secondary">{riskReasons.length ? <AlertTriangle size={14} className={healthLabel === 'At risk' ? 'text-danger' : 'text-warning'} /> : <CheckCircle2 size={14} className="text-success" />}Health reasons</div><div className="mt-3 space-y-2">{riskReasons.length ? riskReasons.map((reason) => <div key={reason} className="text-sm text-prise-text-secondary">• {reason}</div>) : <div className="text-sm text-success">No overdue or revision signals detected.</div>}</div></div></div>
+          <div className="mt-4 rounded-xl border p-4"><div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.1em] text-prise-text-secondary"><Target size={14} className="text-prise-primary" />Priority milestones</div><div className="mt-3 grid gap-2 sm:grid-cols-3">{priorityMilestones.map((item) => <a key={item.id} href="#milestones" className="rounded-lg bg-prise-page p-3"><div className="text-[10px] font-semibold uppercase text-prise-primary">Phase {item.phase} · {label(item.priority)}</div><div className="mt-1 text-sm font-semibold leading-5">{item.title}</div></a>)}{priorityMilestones.length === 0 ? <div className="text-sm text-success sm:col-span-3">All selected milestones are complete.</div> : null}</div></div>
         </Section>
 
         <MilestonePlan startupId={id} milestones={startup.milestones} role={session.user.role} canAssign={canAssign} canReview={canReviewMilestone} canUpload={canUploadEvidence} />
@@ -93,6 +110,7 @@ export default async function StartupDetailPage({ params }: { params: Promise<{ 
 }
 
 function Section({ title, subtitle, children, action, icon }: { title: string; subtitle?: string; children: React.ReactNode; action?: React.ReactNode; icon?: React.ReactNode }) { return <section className="rounded-card border bg-white p-5 shadow-card sm:p-6"><div className="mb-5 flex items-start justify-between gap-4"><div><div className="flex items-center gap-2">{icon}<h2 className="text-base font-semibold">{title}</h2></div>{subtitle ? <p className="mt-1 text-sm text-prise-text-secondary">{subtitle}</p> : null}</div>{action}</div>{children}</section>; }
+function MetricCard({ label: metricLabel, value, detail, tone = 'bg-prise-page text-prise-text' }: { label: string; value: string; detail?: string; tone?: string }) { return <div className={`rounded-xl p-3 ${tone}`}><div className="text-[10px] font-semibold uppercase tracking-[.1em] opacity-65">{metricLabel}</div><div className="mt-1 text-xl font-bold">{value}</div>{detail ? <div className="mt-0.5 truncate text-[10px] opacity-70">{detail}</div> : null}</div>; }
 function Badge({ value }: { value: string }) { return <span className="shrink-0 rounded-pill bg-prise-page px-2.5 py-1 text-[11px] font-semibold text-prise-text-secondary">{label(value)}</span>; }
 function Empty({ text }: { text: string }) { return <div className="rounded-input bg-prise-page p-4 text-sm text-prise-text-secondary">{text}</div>; }
 
