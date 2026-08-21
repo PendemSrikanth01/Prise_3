@@ -164,6 +164,16 @@ export async function startupMemberRole(startupId: string, personId: string) {
   return membership?.isActive ? membership.role : null;
 }
 
+export async function resolveFounderStartupId(user: Pick<AuthUser, 'id' | 'founderOfStartupId'>) {
+  if (user.founderOfStartupId) return user.founderOfStartupId;
+  const membership = await prisma.startupMembership.findFirst({
+    where: { personId: user.id, isActive: true },
+    orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
+    select: { startupId: true },
+  });
+  return membership?.startupId ?? null;
+}
+
 export async function requireStartupAccess(startupId: string, permission?: Permission) {
   const session = await requireSession();
   const startup = await prisma.startup.findFirst({

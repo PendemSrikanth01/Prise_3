@@ -1,10 +1,14 @@
+'use client';
+
 import Link from 'next/link';
+import { useActionState, useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle2, ChevronDown, Circle, Clock3, Download, FileText, MessageSquareText } from 'lucide-react';
 import { DeliverableStatus, MilestoneStatus, MilestoneStakeholderLane, MilestoneStakeholderState, Prisma, ReviewDecision, Role } from '@prisma/client';
 import { reviewDeliverableAction } from '@/app/actions/documents';
-import { reviewMilestoneAction, updateMilestoneStakeholderStatusAction } from '@/app/actions/workflows';
+import { reviewMilestoneWithFeedbackAction, updateMilestoneStatusWithFeedbackAction, type ActionFeedback } from '@/app/actions/workflows';
 import { MilestoneUploadForm } from '@/components/documents/MilestoneUploadForm';
 import { SubmitButton } from '@/components/ui/FormButtons';
+import { useToast } from '@/components/ui/ToastProvider';
 
 type MilestoneItem = Prisma.MilestoneGetPayload<{ include: {
   template: { select: { phaseName: true } };
@@ -25,36 +29,61 @@ export function MilestonePlan({ startupId, milestones, role, canAssign, canRevie
     groups.set(key, group);
     return groups;
   }, new Map<string, MilestoneItem[]>()).entries()];
+  const [openPhases, setOpenPhases] = useState(() => new Set(phases.slice(0, 1).map(([key]) => key)));
+  const [openMilestones, setOpenMilestones] = useState<Set<string>>(() => new Set());
+  const toggle = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) => setter((current) => {
+    const next = new Set(current);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
 
   return <section id="milestones" className="scroll-mt-20 rounded-card border bg-white p-4 shadow-card sm:p-5">
     <div className="mb-4 flex items-start justify-between gap-4"><div><h2 className="text-base font-semibold">Milestone progress</h2><p className="mt-1 text-xs text-prise-text-secondary">See all phases, then open a row only when you need files, comments or an update.</p></div>{canAssign ? <Link href={`/startups/${startupId}/milestones/assign`} className="shrink-0 rounded-button bg-prise-primary px-3 py-2 text-xs font-semibold text-white">Edit plan</Link> : null}</div>
-    {milestones.length ? <div className="space-y-2">{phases.map(([phaseKey, items], phaseIndex) => {
+    {milestones.length ? <div className="space-y-2">{phases.map(([phaseKey, items]) => {
       const [phaseNumber, phaseName] = phaseKey.split('|');
       const complete = items.filter((item) => item.status === MilestoneStatus.APPROVED).length;
-      return <details key={phaseKey} open={phaseIndex === 0} className="group/phase overflow-hidden rounded-xl border border-prise-border">
-        <summary className="cursor-pointer list-none bg-slate-50 px-3 py-2.5"><div className="flex items-center justify-between gap-3"><div className="min-w-0"><span className="text-[10px] font-bold uppercase tracking-[.12em] text-prise-primary">Phase {phaseNumber}</span><span className="ml-2 text-sm font-semibold">{phaseName}</span></div><div className="flex shrink-0 items-center gap-2"><span className="text-[11px] font-semibold text-prise-text-secondary">{complete}/{items.length}</span><ChevronDown size={15} className="transition group-open/phase:rotate-180" /></div></div></summary>
-        <div className="space-y-1.5 p-2">{items.map((milestone) => {
+      const phaseOpen = openPhases.has(phaseKey);
+      return <section key={phaseKey} className="overflow-hidden rounded-xl border border-prise-border">
+        <button type="button" onClick={() => toggle(setOpenPhases, phaseKey)} aria-expanded={phaseOpen} className="w-full bg-slate-50 px-3 py-2.5 text-left"><div className="flex items-center justify-between gap-3"><div className="min-w-0"><span className="text-[10px] font-bold uppercase tracking-[.12em] text-prise-primary">Phase {phaseNumber}</span><span className="ml-2 text-sm font-semibold">{phaseName}</span></div><div className="flex shrink-0 items-center gap-2"><span className="text-[11px] font-semibold text-prise-text-secondary">{complete}/{items.length}</span><ChevronDown size={15} className={`transition ${phaseOpen ? 'rotate-180' : ''}`} /></div></div></button>
+        {phaseOpen ? <div className="space-y-1.5 p-2">{items.map((milestone) => {
           const startupState = resolvedLaneState(milestone.status, MilestoneStakeholderLane.STARTUP, milestone.stakeholderStatuses.find((item) => item.lane === MilestoneStakeholderLane.STARTUP)?.state);
           const mentorState = resolvedLaneState(milestone.status, MilestoneStakeholderLane.MENTOR, milestone.stakeholderStatuses.find((item) => item.lane === MilestoneStakeholderLane.MENTOR)?.state);
           const programState = resolvedLaneState(milestone.status, MilestoneStakeholderLane.PROGRAM, milestone.stakeholderStatuses.find((item) => item.lane === MilestoneStakeholderLane.PROGRAM)?.state);
-          return <details key={milestone.id} className={`group/milestone rounded-lg border ${milestone.isFinalized ? 'border-emerald-200 bg-emerald-50/55' : 'border-rose-200 bg-rose-50/60'}`}>
-            <summary className="cursor-pointer list-none px-3 py-2.5"><div className="grid items-center gap-2 lg:grid-cols-[minmax(220px,1fr)_auto_auto]">
+          const milestoneOpen = openMilestones.has(milestone.id);
+          return <article key={milestone.id} className={`rounded-lg border ${milestone.isFinalized ? 'border-emerald-200 bg-emerald-50/55' : 'border-rose-200 bg-rose-50/60'}`}>
+            <button type="button" onClick={() => toggle(setOpenMilestones, milestone.id)} aria-expanded={milestoneOpen} className="w-full px-3 py-2.5 text-left"><div className="grid items-center gap-2 lg:grid-cols-[minmax(220px,1fr)_auto_auto]">
               <div className="min-w-0"><div className="flex items-center gap-2"><span className="truncate text-sm font-semibold">{milestone.title}</span><span className={`rounded-pill px-2 py-0.5 text-[9px] font-bold uppercase ${milestone.isFinalized ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{milestone.isFinalized ? 'selected' : 'proposed'}</span></div><p className="mt-0.5 truncate text-[11px] text-prise-text-secondary">{milestone.keyActivity || milestone.deliverable || 'Track the agreed outcome and evidence.'}</p></div>
               <div className="flex flex-wrap gap-1"><LanePill lane={MilestoneStakeholderLane.STARTUP} state={startupState} /><LanePill lane={MilestoneStakeholderLane.MENTOR} state={mentorState} startupState={startupState} /><LanePill lane={MilestoneStakeholderLane.PROGRAM} state={programState} mentorState={mentorState} /></div>
-              <div className="flex items-center justify-end gap-2 text-[11px] font-semibold text-prise-primary"><FileText size={13} />View files ({milestone.deliverables.length})<ChevronDown size={14} className="transition group-open/milestone:rotate-180" /></div>
-            </div></summary>
-            <div className="space-y-3 border-t border-black/5 bg-white/85 p-3">
-              {editableLane ? <form action={updateMilestoneStakeholderStatusAction} className="grid gap-2 sm:grid-cols-[170px_1fr_auto]"><input type="hidden" name="milestoneId" value={milestone.id} /><input type="hidden" name="lane" value={editableLane} /><select name="state" defaultValue={resolvedLaneState(milestone.status, editableLane, milestone.stakeholderStatuses.find((item) => item.lane === editableLane)?.state)} className={inputClass}>{laneStates(editableLane).map((value) => <option key={value} value={value}>{laneActionLabel(editableLane, value)}</option>)}</select><input name="note" defaultValue={milestone.stakeholderStatuses.find((item) => item.lane === editableLane)?.note ?? ''} placeholder={editableLane === MilestoneStakeholderLane.MENTOR ? 'Mentor comment or correction' : editableLane === MilestoneStakeholderLane.PROGRAM ? 'Completion note' : 'Progress note for review'} className={inputClass} /><SubmitButton className="!py-2">Save</SubmitButton></form> : null}
+              <div className="flex items-center justify-end gap-2 text-[11px] font-semibold text-prise-primary"><FileText size={13} />View files ({milestone.deliverables.length})<ChevronDown size={14} className={`transition ${milestoneOpen ? 'rotate-180' : ''}`} /></div>
+            </div></button>
+            {milestoneOpen ? <div className="space-y-3 border-t border-black/5 bg-white/85 p-3">
+              {editableLane ? <MilestoneStatusForm milestone={milestone} lane={editableLane} /> : null}
               {canUpload ? <MilestoneUploadForm milestoneId={milestone.id} /> : null}
               <EvidenceList milestone={milestone} canReview={canReview} />
               {milestone.reviews[0] ? <div className="flex items-start gap-2 rounded-input bg-prise-page p-3 text-xs text-prise-text-secondary"><MessageSquareText size={14} className="mt-0.5 shrink-0 text-prise-primary" /><span><strong>{milestone.reviews[0].reviewer.name}:</strong> {label(milestone.reviews[0].decision)}{milestone.reviews[0].feedback ? ` · ${milestone.reviews[0].feedback}` : ''}</span></div> : null}
-              {canReview ? <form action={reviewMilestoneAction} className="grid gap-2 sm:grid-cols-[170px_1fr_auto]"><input type="hidden" name="milestoneId" value={milestone.id} /><select name="decision" defaultValue={ReviewDecision.COMMENTED} className={inputClass}>{Object.values(ReviewDecision).map((value) => <option key={value}>{value.replaceAll('_', ' ')}</option>)}</select><input name="feedback" placeholder="Add review comments" className={inputClass} /><SubmitButton className="!py-2">Add review</SubmitButton></form> : null}
-            </div>
-          </details>;
-        })}</div>
-      </details>;
+              {canReview ? <MilestoneReviewForm milestoneId={milestone.id} /> : null}
+            </div> : null}
+          </article>;
+        })}</div> : null}
+      </section>;
     })}</div> : <div className="rounded-input border border-dashed bg-prise-page p-5"><p className="text-sm font-semibold">No milestones assigned yet</p><p className="mt-1 text-xs leading-5 text-prise-text-secondary">Select only the outcomes that materially move this startup forward.</p></div>}
   </section>;
+}
+
+const initialActionState: ActionFeedback = { status: 'idle', message: '' };
+
+function MilestoneStatusForm({ milestone, lane }: { milestone: MilestoneItem; lane: MilestoneStakeholderLane }) {
+  const [state, action] = useActionState(updateMilestoneStatusWithFeedbackAction, initialActionState);
+  const { notify } = useToast();
+  useEffect(() => { if (state.status !== 'idle') notify(state.message, state.status); }, [state, notify]);
+  return <form action={action} className="grid gap-2 sm:grid-cols-[170px_1fr_auto]"><input type="hidden" name="milestoneId" value={milestone.id} /><input type="hidden" name="lane" value={lane} /><select name="state" defaultValue={resolvedLaneState(milestone.status, lane, milestone.stakeholderStatuses.find((item) => item.lane === lane)?.state)} className={inputClass}>{laneStates(lane).map((value) => <option key={value} value={value}>{laneActionLabel(lane, value)}</option>)}</select><input name="note" defaultValue={milestone.stakeholderStatuses.find((item) => item.lane === lane)?.note ?? ''} placeholder={lane === MilestoneStakeholderLane.MENTOR ? 'Mentor comment or correction' : lane === MilestoneStakeholderLane.PROGRAM ? 'Completion note' : 'Progress note for review'} className={inputClass} /><SubmitButton className="!py-2">Save</SubmitButton></form>;
+}
+
+function MilestoneReviewForm({ milestoneId }: { milestoneId: string }) {
+  const [state, action] = useActionState(reviewMilestoneWithFeedbackAction, initialActionState);
+  const { notify } = useToast();
+  useEffect(() => { if (state.status !== 'idle') notify(state.message, state.status); }, [state, notify]);
+  return <form action={action} className="grid gap-2 sm:grid-cols-[170px_1fr_auto]"><input type="hidden" name="milestoneId" value={milestoneId} /><select name="decision" defaultValue={ReviewDecision.COMMENTED} className={inputClass}>{Object.values(ReviewDecision).map((value) => <option key={value}>{value.replaceAll('_', ' ')}</option>)}</select><input name="feedback" placeholder="Add review comments" className={inputClass} /><SubmitButton className="!py-2">Add review</SubmitButton></form>;
 }
 
 function EvidenceList({ milestone, canReview }: { milestone: MilestoneItem; canReview: boolean }) {

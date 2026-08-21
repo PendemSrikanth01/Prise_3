@@ -2,14 +2,16 @@ import Link from 'next/link';
 import { CalendarDays, ChevronRight, CircleAlert, FileCheck2, LifeBuoy, ListChecks, Target } from 'lucide-react';
 import { DeliverableStatus, MilestoneStatus, PaymentStatus, SessionStatus, SessionType, SupportRequestStatus, TaskStatus, type Role } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { resolveFounderStartupId } from '@/lib/auth';
 
 type FounderUser = { id: string; name: string; role: Role; founderOfStartupId: string | null };
 
 export async function FounderDashboard({ user }: { user: FounderUser }) {
-  if (!user.founderOfStartupId) return <EmptyFounder />;
+  const startupId = await resolveFounderStartupId(user);
+  if (!startupId) return <EmptyFounder />;
   const now = new Date();
   const startup = await prisma.startup.findUnique({
-    where: { id: user.founderOfStartupId },
+    where: { id: startupId },
     include: {
       milestones: { include: { _count: { select: { deliverables: true } } }, orderBy: [{ phase: 'asc' }, { dueDate: 'asc' }] },
       tasks: { where: { status: { not: TaskStatus.DONE } }, orderBy: [{ dueDate: 'asc' }, { priority: 'asc' }], take: 5 },

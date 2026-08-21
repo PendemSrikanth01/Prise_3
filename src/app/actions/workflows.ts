@@ -128,13 +128,18 @@ export async function reviewOnboardingAction(formData: FormData) {
   refreshStartup(item.startupId);
 }
 
-export async function assignMilestonesAction(formData: FormData) {
+export type ActionFeedback = { status: 'idle' | 'success' | 'error'; message: string };
+
+const actionMessage = (error: unknown, fallback: string) => error instanceof Error && error.message ? error.message : fallback;
+
+export async function assignMilestonesAction(_previous: ActionFeedback, formData: FormData): Promise<ActionFeedback> {
+  try {
   const startupId = requiredText(formData, 'startupId', 64);
   const session = await requireStartupAccess(startupId);
   const canPlan = isProgramRole(session.user.role) || session.user.role === Role.MENTOR || session.user.role === Role.FOUNDER;
   if (!canPlan) throw new Error('Only the startup, assigned mentor, or program team can update this plan.');
   const templateIds = [...new Set(formData.getAll('templateId').filter((value): value is string => typeof value === 'string'))];
-  if (templateIds.length < 10 || templateIds.length > 20) throw new Error('Select between 10 and 20 milestones.');
+  if (templateIds.length < 1) throw new Error('Select at least one milestone.');
   const [startup, templates, existing] = await Promise.all([
     prisma.startup.findUniqueOrThrow({ where: { id: startupId }, select: { name: true } }),
     prisma.milestoneTemplate.findMany({ where: { id: { in: templateIds }, isActive: true, scope: 'STARTUP' } }),
@@ -156,6 +161,10 @@ export async function assignMilestonesAction(formData: FormData) {
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'Startup', entityId: startupId, action: isProgramRole(session.user.role) ? 'milestone_plan_finalized' : 'milestone_plan_proposed', summary: `${startup.name}: ${templates.length} milestones ${isProgramRole(session.user.role) ? 'finalized' : 'proposed'}`, meta: { selectedTemplateIds: templateIds, removed: removals.map((item) => item.templateId) } }) });
   });
   refreshStartup(startupId);
+  return { status: 'success', message: isProgramRole(session.user.role) ? 'Milestone plan finalized and saved successfully!' : 'Milestone proposal saved for program confirmation.' };
+  } catch (error) {
+    return { status: 'error', message: actionMessage(error, 'The milestone plan could not be saved. Please try again.') };
+  }
 }
 
 export async function createTaskAction(formData: FormData) {
@@ -228,6 +237,15 @@ export async function reviewMilestoneAction(formData: FormData) {
   refreshStartup(milestone.startupId);
 }
 
+export async function reviewMilestoneWithFeedbackAction(_previous: ActionFeedback, formData: FormData): Promise<ActionFeedback> {
+  try {
+    await reviewMilestoneAction(formData);
+    return { status: 'success', message: 'Review submitted!' };
+  } catch (error) {
+    return { status: 'error', message: actionMessage(error, 'The review could not be submitted.') };
+  }
+}
+
 export async function updateMilestoneStakeholderStatusAction(formData: FormData) {
   const session = await requireSession();
   const milestoneId = requiredText(formData, 'milestoneId', 64);
@@ -255,6 +273,15 @@ export async function updateMilestoneStakeholderStatusAction(formData: FormData)
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: milestone.startupId, entityType: 'Milestone', entityId: milestoneId, action: 'stakeholder_status_updated', summary: `${milestone.title}: ${lane.toLowerCase()} marked ${state.replaceAll('_', ' ').toLowerCase()}`, meta: { lane, from: before?.state ?? MilestoneStakeholderState.NOT_STARTED, to: state } }) });
   });
   refreshStartup(milestone.startupId);
+}
+
+export async function updateMilestoneStatusWithFeedbackAction(_previous: ActionFeedback, formData: FormData): Promise<ActionFeedback> {
+  try {
+    await updateMilestoneStakeholderStatusAction(formData);
+    return { status: 'success', message: 'Milestone status updated!' };
+  } catch (error) {
+    return { status: 'error', message: actionMessage(error, 'The milestone status could not be updated.') };
+  }
 }
 
 export async function createPaymentAction(formData: FormData) {
@@ -391,6 +418,65 @@ export async function createPersonAction(formData: FormData) {
   revalidatePath('/notifications');
   revalidatePath('/people');
   revalidatePath('/audit');
+}
+
+export async function updateFounderStartupAccessAction(_previous: ActionFeedback, formData: FormData): Promise<ActionFeedback> {
+  try {
+    const session = await requirePermission('people:manage');
+    const personId = requiredText(formData, 'personId', 64);
+    const startupId = optionalText(formData, 'startupId', 64);
+    const membershipRole = enumValue(StartupMemberRole, formData.get('membershipRole'), 'membershipRole');
+    const confirmed = formData.get('confirmOwnershipChange') === 'on';
+    const person = await prisma.person.findUniqueOrThrow({
+      where: { id: personId },
+      select: { name: true, email: true, role: true, founderOfStartupId: true, startupMemberships: { where: { isActive: true }, select: { startupId: true, role: true } } },
+    });
+    if (person.role !== Role.FOUNDER) throw new Error('Choose a founder account.');
+
+    if (!startupId) {
+      if (!confirmed) throw new Error('Confirm the access change before unlinking this founder.');
+      await prisma.$transaction(async (tx) => {
+        await tx.person.update({ where: { id: personId }, data: { founderOfStartupId: null } });
+        await tx.startupMembership.updateMany({ where: { personId, isActive: true }, data: { isActive: false } });
+        await tx.activityLog.create({ data: auditData({ actor: session.user, entityType: 'Person', entityId: personId, action: 'founder_startup_unlinked', summary: `${person.name}: startup access removed`, meta: { previousPrimaryStartupId: person.founderOfStartupId, previousMemberships: person.startupMemberships } }) });
+      });
+      revalidatePath('/settings');
+      revalidatePath('/startups');
+      revalidatePath('/audit');
+      return { status: 'success', message: `${person.name} is no longer linked to a startup.` };
+    }
+
+    const startup = await prisma.startup.findUniqueOrThrow({ where: { id: startupId }, select: { name: true, founder: { select: { id: true, name: true } }, memberships: { where: { role: StartupMemberRole.OWNER, isActive: true, personId: { not: personId } }, select: { personId: true, person: { select: { name: true } } } } } });
+    const currentOwner = startup.founder && startup.founder.id !== personId ? startup.founder : startup.memberships[0]?.person;
+    const movingPrimary = Boolean(person.founderOfStartupId && person.founderOfStartupId !== startupId);
+    const demotingPrimary = person.founderOfStartupId === startupId && membershipRole !== StartupMemberRole.OWNER;
+    if ((movingPrimary || demotingPrimary || (membershipRole === StartupMemberRole.OWNER && currentOwner)) && !confirmed) {
+      throw new Error(currentOwner ? `${startup.name} already has owner ${currentOwner.name}. Confirm ownership transfer to continue.` : 'Confirm the ownership change to continue.');
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.startupMembership.updateMany({ where: { personId, startupId: { not: startupId }, isActive: true }, data: { isActive: false } });
+      if (membershipRole === StartupMemberRole.OWNER) {
+        await tx.person.updateMany({ where: { founderOfStartupId: startupId, id: { not: personId } }, data: { founderOfStartupId: null } });
+        await tx.startupMembership.updateMany({ where: { startupId, personId: { not: personId }, role: StartupMemberRole.OWNER, isActive: true }, data: { role: StartupMemberRole.ADMIN } });
+      }
+      await tx.startupMembership.upsert({
+        where: { startupId_personId: { startupId, personId } },
+        update: { role: membershipRole, isActive: true },
+        create: { startupId, personId, role: membershipRole, isActive: true },
+      });
+      await tx.person.update({ where: { id: personId }, data: { founderOfStartupId: membershipRole === StartupMemberRole.OWNER ? startupId : null } });
+      await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'Person', entityId: personId, action: 'founder_startup_access_updated', summary: `${person.name}: linked to ${startup.name} as ${membershipRole.toLowerCase()}`, meta: { previousPrimaryStartupId: person.founderOfStartupId, previousMemberships: person.startupMemberships, startupId, membershipRole, replacedOwner: currentOwner?.name ?? null } }) });
+    });
+    revalidatePath('/');
+    revalidatePath('/settings');
+    revalidatePath('/startups');
+    revalidatePath(`/startups/${startupId}`);
+    revalidatePath('/audit');
+    return { status: 'success', message: `${person.name} now has ${membershipRole.toLowerCase()} access to ${startup.name}.` };
+  } catch (error) {
+    return { status: 'error', message: actionMessage(error, 'Founder startup access could not be updated.') };
+  }
 }
 
 export async function shareStartupWithInvestorAction(formData: FormData) {

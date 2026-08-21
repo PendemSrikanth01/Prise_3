@@ -1,7 +1,8 @@
-import { AssignmentRole, Role } from '@prisma/client';
+import { AssignmentRole, Role, StartupMemberRole } from '@prisma/client';
 import { assignStartupPersonAction, removeStartupPersonAction } from '@/app/actions/mentor';
 import { createPersonAction, removeInvestorShareAction, resetPersonPasswordAction, shareStartupWithInvestorAction, updatePersonAccessAction } from '@/app/actions/workflows';
 import { PasswordForm } from '@/components/auth/PasswordForm';
+import { FounderStartupAccessForm } from '@/components/admin/FounderStartupAccessForm';
 import { ConfirmButton, SubmitButton } from '@/components/ui/FormButtons';
 import { hasPermission, requireSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
@@ -15,7 +16,7 @@ export default async function SettingsPage() {
     ? await Promise.all([
         prisma.person.findMany({
           orderBy: { name: 'asc' },
-          select: { id: true, name: true, email: true, role: true, isActive: true, lastLoginAt: true },
+          select: { id: true, name: true, email: true, role: true, isActive: true, lastLoginAt: true, founderOfStartupId: true, startupMemberships: { where: { isActive: true }, orderBy: { createdAt: 'asc' }, select: { startupId: true, role: true } } },
         }),
         prisma.startup.findMany({ orderBy: { sNo: 'asc' }, select: { id: true, name: true } }),
         prisma.startupAssignment.findMany({ include: { startup: { select: { name: true } }, person: { select: { name: true } } }, orderBy: [{ startup: { name: 'asc' } }, { person: { name: 'asc' } }] }),
@@ -24,7 +25,7 @@ export default async function SettingsPage() {
     : [[], [], [], []];
 
   return (
-    <div className="mx-auto w-full max-w-6xl p-4 sm:p-6 lg:p-8">
+    <div className="mx-auto w-full min-w-0 max-w-6xl p-4 [&_form]:min-w-0 [&_input]:min-w-0 [&_select]:min-w-0 sm:p-6 lg:p-8">
       <h1 className="text-2xl font-bold tracking-tight">Administration</h1>
       <p className="mt-2 text-sm text-prise-text-secondary">Identity, access and deployment posture.</p>
 
@@ -62,6 +63,14 @@ export default async function SettingsPage() {
               <input name="password" type="password" required minLength={6} maxLength={128} placeholder="Temporary password · minimum 6 chars" className="h-11 rounded-input border px-3" />
               <div className="lg:col-span-3"><SubmitButton>Create secure account</SubmitButton></div>
             </form>
+          </section>
+
+          <section className="mt-5 overflow-hidden rounded-card border bg-white shadow-card">
+            <div className="border-b px-5 py-4"><h2 className="font-semibold">Founder startup access</h2><p className="mt-1 text-sm text-prise-text-secondary">Connect an unlinked founder, move them to the correct startup, or transfer ownership. Changes are audited.</p></div>
+            <div className="divide-y">{people.filter((person) => person.role === Role.FOUNDER).map((person) => {
+              const membership = person.startupMemberships.find((item) => item.startupId === person.founderOfStartupId) ?? person.startupMemberships[0];
+              return <FounderStartupAccessForm key={person.id} founder={{ id: person.id, name: person.name, email: person.email, startupId: person.founderOfStartupId ?? membership?.startupId ?? '', membershipRole: membership?.role ?? StartupMemberRole.OWNER }} startups={startups} />;
+            })}{people.every((person) => person.role !== Role.FOUNDER) ? <div className="px-5 py-6 text-sm text-prise-text-secondary">No founder accounts yet.</div> : null}</div>
           </section>
 
           <section className="mt-5 rounded-card border bg-white p-5 shadow-card sm:p-6">
