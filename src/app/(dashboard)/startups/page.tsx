@@ -108,7 +108,7 @@ export default async function StartupsPage({ searchParams }: { searchParams: Sea
           <input
             name="q"
             defaultValue={search}
-            placeholder="Search name, founder, sector…"
+            placeholder="Search startup, incubatee, sector…"
             aria-label="Search startups"
             className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-prise-text-muted"
           />

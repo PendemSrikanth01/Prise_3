@@ -91,6 +91,11 @@ enum AssignmentRole {
   INVESTOR
 }
 
+enum MatchPreferenceSource {
+  MENTOR
+  INCUBATEE
+}
+
 enum MentorMeetingMode {
   ONLINE
   OFFLINE
@@ -302,6 +307,8 @@ model Person {
   supportMessages         SupportMessage[]             @relation("SupportMessageAuthor")
   supportParticipants     SupportParticipant[]         @relation("SupportParticipantPerson")
   uploadedResources       Resource[]                   @relation("ResourceUploader")
+  mentorMatchPreferences  MentorMatchPreference[]      @relation("MatchPreferenceMentor")
+  submittedMatchPreferences MentorMatchPreference[]    @relation("MatchPreferenceSubmitter")
 
   @@index([role])
   @@index([isActive])
@@ -350,6 +357,29 @@ model StartupAssignment {
   @@unique([startupId, personId, role])
   @@index([personId])
   @@index([startupId])
+}
+
+// Ranked preferences are intentionally separate from finalized assignments.
+// A final mentor mapping continues to use StartupAssignment, which is the
+// single source of truth for workspace access.
+model MentorMatchPreference {
+  id            String                @id @default(cuid())
+  source        MatchPreferenceSource
+  mentorId      String
+  startupId     String
+  rank          Int
+  note          String?
+  submittedById String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  mentor     Person  @relation("MatchPreferenceMentor", fields: [mentorId], references: [id], onDelete: Cascade)
+  startup    Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  submittedBy Person? @relation("MatchPreferenceSubmitter", fields: [submittedById], references: [id], onDelete: SetNull)
+
+  @@unique([source, mentorId, startupId])
+  @@index([startupId, source, rank])
+  @@index([mentorId, source, rank])
 }
 
 model StartupMembership {
@@ -441,6 +471,7 @@ model Startup {
   activityLogs        ActivityLog[]          @relation("StartupActivity")
   taskComments        TaskComment[]
   supportMessages     SupportMessage[]
+  mentorMatchPreferences MentorMatchPreference[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

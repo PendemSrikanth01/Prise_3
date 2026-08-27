@@ -1,10 +1,12 @@
-import { AssignmentRole, Role, StartupMemberRole } from '@prisma/client';
-import { assignStartupPersonAction, removeStartupPersonAction } from '@/app/actions/mentor';
-import { createPersonAction, removeInvestorShareAction, resetPersonPasswordAction, shareStartupWithInvestorAction, updatePersonAccessAction } from '@/app/actions/workflows';
+import { Role, StartupMemberRole } from '@prisma/client';
+import { createPersonAction, removeInvestorShareAction, resetPersonPasswordAction, shareStartupWithInvestorAction } from '@/app/actions/workflows';
+import { AccountManager } from '@/components/admin/AccountManager';
 import { PasswordForm } from '@/components/auth/PasswordForm';
 import { FounderStartupAccessForm } from '@/components/admin/FounderStartupAccessForm';
+import { StartupTeamAssignments } from '@/components/admin/StartupTeamAssignments';
 import { ConfirmButton, SubmitButton } from '@/components/ui/FormButtons';
 import { hasPermission, requireSession } from '@/lib/auth';
+import { roleLabel } from '@/lib/labels';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +18,7 @@ export default async function SettingsPage() {
     ? await Promise.all([
         prisma.person.findMany({
           orderBy: { name: 'asc' },
-          select: { id: true, name: true, email: true, role: true, isActive: true, lastLoginAt: true, founderOfStartupId: true, startupMemberships: { where: { isActive: true }, orderBy: { createdAt: 'asc' }, select: { startupId: true, role: true } } },
+          select: { id: true, name: true, email: true, phone: true, role: true, isActive: true, lastLoginAt: true, founderOfStartupId: true, startupMemberships: { where: { isActive: true }, orderBy: { createdAt: 'asc' }, select: { startupId: true, role: true } } },
         }),
         prisma.startup.findMany({ orderBy: { sNo: 'asc' }, select: { id: true, name: true } }),
         prisma.startupAssignment.findMany({ include: { startup: { select: { name: true } }, person: { select: { name: true } } }, orderBy: [{ startup: { name: 'asc' } }, { person: { name: 'asc' } }] }),
@@ -33,7 +35,7 @@ export default async function SettingsPage() {
         <div className="text-sm font-semibold">Your access</div>
         <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
           <Info label="Account" value={session.user.email} />
-          <Info label="Role" value={session.user.role.replaceAll('_', ' ').toLowerCase()} />
+          <Info label="Role" value={roleLabel(session.user.role)} />
           <Info label="Session expires" value={session.expiresAt.toLocaleString('en-IN')} />
         </div>
       </div>
@@ -54,10 +56,10 @@ export default async function SettingsPage() {
               <input name="email" type="email" required placeholder="Email" className="h-11 rounded-input border px-3" />
               <input name="phone" placeholder="Phone (optional)" className="h-11 rounded-input border px-3" />
               <select name="role" defaultValue={Role.MENTOR} className="h-11 rounded-input border bg-white px-3">
-                {Object.values(Role).map((value) => <option key={value}>{value}</option>)}
+                {Object.values(Role).map((value) => <option key={value} value={value}>{roleLabel(value)}</option>)}
               </select>
               <select name="founderOfStartupId" className="h-11 rounded-input border bg-white px-3">
-                <option value="">Founder startup (only if applicable)</option>
+                <option value="">Incubatee startup (only if applicable)</option>
                 {startups.map((startup) => <option key={startup.id} value={startup.id}>{startup.name}</option>)}
               </select>
               <input name="password" type="password" required minLength={6} maxLength={128} placeholder="Temporary password · minimum 6 chars" className="h-11 rounded-input border px-3" />
@@ -66,11 +68,11 @@ export default async function SettingsPage() {
           </section>
 
           <section className="mt-5 overflow-hidden rounded-card border bg-white shadow-card">
-            <div className="border-b px-5 py-4"><h2 className="font-semibold">Founder startup access</h2><p className="mt-1 text-sm text-prise-text-secondary">Connect an unlinked founder, move them to the correct startup, or transfer ownership. Changes are audited.</p></div>
+            <div className="border-b px-5 py-4"><h2 className="font-semibold">Incubatee startup access</h2><p className="mt-1 text-sm text-prise-text-secondary">Connect an unlinked incubatee, move them to the correct startup, or transfer ownership. Changes are audited.</p></div>
             <div className="divide-y">{people.filter((person) => person.role === Role.FOUNDER).map((person) => {
               const membership = person.startupMemberships.find((item) => item.startupId === person.founderOfStartupId) ?? person.startupMemberships[0];
               return <FounderStartupAccessForm key={person.id} founder={{ id: person.id, name: person.name, email: person.email, startupId: person.founderOfStartupId ?? membership?.startupId ?? '', membershipRole: membership?.role ?? StartupMemberRole.OWNER }} startups={startups} />;
-            })}{people.every((person) => person.role !== Role.FOUNDER) ? <div className="px-5 py-6 text-sm text-prise-text-secondary">No founder accounts yet.</div> : null}</div>
+            })}{people.every((person) => person.role !== Role.FOUNDER) ? <div className="px-5 py-6 text-sm text-prise-text-secondary">No incubatee accounts yet.</div> : null}</div>
           </section>
 
           <section className="mt-5 rounded-card border bg-white p-5 shadow-card sm:p-6">
@@ -86,17 +88,7 @@ export default async function SettingsPage() {
             </form>
           </section>
 
-          <section className="mt-5 rounded-card border bg-white p-5 shadow-card sm:p-6">
-            <h2 className="font-semibold">Startup team assignments</h2>
-            <p className="mt-1 text-sm text-prise-text-secondary">Assign mentors, experts and delivery owners so every role sees only the startups relevant to them.</p>
-            <form action={assignStartupPersonAction} className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_180px_auto]">
-              <select name="startupId" required className="h-11 rounded-input border bg-white px-3 text-sm"><option value="">Choose startup</option>{startups.map((startup) => <option key={startup.id} value={startup.id}>{startup.name}</option>)}</select>
-              <select name="personId" required className="h-11 rounded-input border bg-white px-3 text-sm"><option value="">Choose team member</option>{people.filter((person) => person.isActive).map((person) => <option key={person.id} value={person.id}>{person.name} · {person.role.replaceAll('_', ' ').toLowerCase()}</option>)}</select>
-              <select name="assignmentRole" defaultValue={AssignmentRole.MENTOR} className="h-11 rounded-input border bg-white px-3 text-sm">{Object.values(AssignmentRole).filter((value) => value !== AssignmentRole.INVESTOR).map((value) => <option key={value}>{value}</option>)}</select>
-              <SubmitButton>Assign</SubmitButton>
-            </form>
-            <div className="mt-5 divide-y border-t">{assignments.map((assignment) => <form action={removeStartupPersonAction} key={assignment.id} className="flex flex-wrap items-center gap-3 py-3 text-sm"><input type="hidden" name="assignmentId" value={assignment.id} /><div className="min-w-48 flex-1 font-semibold">{assignment.startup.name}</div><div className="min-w-44 text-prise-text-secondary">{assignment.person.name}</div><span className="rounded-pill bg-prise-page px-2.5 py-1 text-xs font-semibold">{assignment.role.toLowerCase()}</span><ConfirmButton message="Remove this startup assignment?">Remove</ConfirmButton></form>)}{assignments.length === 0 ? <div className="py-5 text-sm text-prise-text-secondary">No startup team assignments yet.</div> : null}</div>
-          </section>
+          <StartupTeamAssignments startups={startups} people={people.map(({ id, name, role, isActive }) => ({ id, name, role, isActive }))} assignments={assignments} />
 
           <section className="mt-5 rounded-card border bg-white p-5 shadow-card sm:p-6">
             <h2 className="font-semibold">Investor portfolio access</h2>
@@ -110,30 +102,7 @@ export default async function SettingsPage() {
             <div className="mt-5 divide-y border-t">{investorShares.map((share) => <form action={removeInvestorShareAction} key={share.id} className="flex flex-wrap items-center gap-3 py-3 text-sm"><input type="hidden" name="shareId" value={share.id} /><div className="min-w-48 flex-1 font-semibold">{share.startup.name}</div><div className="min-w-48 text-prise-text-secondary">{share.investor.name} · {share.investor.email}</div><span className="rounded-pill bg-prise-page px-2.5 py-1 text-xs font-semibold">{share.canViewDocuments ? 'Approved files on' : 'Progress only'}</span><ConfirmButton message="Remove this investor's portfolio access?">Remove</ConfirmButton></form>)}{investorShares.length === 0 ? <div className="py-5 text-sm text-prise-text-secondary">No investor access has been shared.</div> : null}</div>
           </section>
 
-          <section className="mt-5 overflow-hidden rounded-card border bg-white shadow-card">
-            <div className="border-b px-5 py-4"><h2 className="font-semibold">Role and account status</h2></div>
-            <div className="divide-y">
-              {people.map((person) => (
-                <form action={updatePersonAccessAction} key={person.id} className="grid gap-3 px-5 py-4 md:grid-cols-[1.2fr_1fr_160px_100px_auto] md:items-center">
-                  <input type="hidden" name="personId" value={person.id} />
-                  <div>
-                    <div className="text-sm font-semibold">{person.name}</div>
-                    <div className="text-xs text-prise-text-secondary">
-                      {person.email}{person.lastLoginAt ? ` · last login ${person.lastLoginAt.toLocaleDateString('en-IN')}` : ' · never signed in'}
-                    </div>
-                  </div>
-                  <select name="role" defaultValue={person.role} className="h-10 rounded-input border bg-white px-3 text-sm">
-                    {Object.values(Role).map((value) => <option key={value}>{value}</option>)}
-                  </select>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input name="isActive" type="checkbox" defaultChecked={person.isActive} className="accent-prise-primary" /> Active
-                  </label>
-                  <div className={`text-xs font-semibold ${person.isActive ? 'text-success' : 'text-danger'}`}>{person.isActive ? 'Enabled' : 'Disabled'}</div>
-                  <SubmitButton className="!py-2">Save access</SubmitButton>
-                </form>
-              ))}
-            </div>
-          </section>
+          <AccountManager people={people.map(({ id, name, email, phone, role, isActive, lastLoginAt }) => ({ id, name, email, phone, role, isActive, lastLoginAt }))} currentUserId={session.user.id} />
         </>
       ) : (
         <div className="mt-5 rounded-card border border-warning/20 bg-warning-bg p-5 text-sm text-prise-text-secondary">

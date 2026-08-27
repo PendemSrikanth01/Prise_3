@@ -412,7 +412,7 @@ export async function createPersonAction(formData: FormData) {
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'Person', entityId: created.id, action: 'created', summary: `Created ${role.replaceAll('_', ' ').toLowerCase()} account for ${created.name}` }) });
     return created;
   });
-  const template = accountWelcomeTemplate({ name: person.name, role: role.replaceAll('_', ' ').toLowerCase(), loginUrl: `${APP_URL()}/login` });
+  const template = accountWelcomeTemplate({ name: person.name, role: role === Role.FOUNDER ? 'incubatee' : role.replaceAll('_', ' ').toLowerCase(), loginUrl: `${APP_URL()}/login` });
   await prisma.notification.create({ data: { recipientId: person.id, recipientEmail: person.email, kind: NotificationKind.ACCOUNT_WELCOME, subject: template.subject, htmlBody: template.html, textBody: template.text, relatedEntityType: 'Person', relatedEntityId: person.id } });
   revalidatePath('/settings');
   revalidatePath('/notifications');
@@ -431,10 +431,10 @@ export async function updateFounderStartupAccessAction(_previous: ActionFeedback
       where: { id: personId },
       select: { name: true, email: true, role: true, founderOfStartupId: true, startupMemberships: { where: { isActive: true }, select: { startupId: true, role: true } } },
     });
-    if (person.role !== Role.FOUNDER) throw new Error('Choose a founder account.');
+    if (person.role !== Role.FOUNDER) throw new Error('Choose an incubatee account.');
 
     if (!startupId) {
-      if (!confirmed) throw new Error('Confirm the access change before unlinking this founder.');
+      if (!confirmed) throw new Error('Confirm the access change before unlinking this incubatee.');
       await prisma.$transaction(async (tx) => {
         await tx.person.update({ where: { id: personId }, data: { founderOfStartupId: null } });
         await tx.startupMembership.updateMany({ where: { personId, isActive: true }, data: { isActive: false } });
@@ -475,7 +475,7 @@ export async function updateFounderStartupAccessAction(_previous: ActionFeedback
     revalidatePath('/audit');
     return { status: 'success', message: `${person.name} now has ${membershipRole.toLowerCase()} access to ${startup.name}.` };
   } catch (error) {
-    return { status: 'error', message: actionMessage(error, 'Founder startup access could not be updated.') };
+    return { status: 'error', message: actionMessage(error, 'Incubatee startup access could not be updated.') };
   }
 }
 
@@ -513,15 +513,43 @@ export async function updatePersonAccessAction(formData: FormData) {
   const session = await requirePermission('people:manage');
   const personId = requiredText(formData, 'personId', 64);
   if (personId === session.user.id && formData.get('isActive') !== 'on') throw new Error('You cannot deactivate your own account.');
-  const before = await prisma.person.findUniqueOrThrow({ where: { id: personId }, select: { name: true, role: true, isActive: true } });
+  const before = await prisma.person.findUniqueOrThrow({ where: { id: personId }, select: { name: true, email: true, phone: true, role: true, isActive: true } });
+  const name = requiredText(formData, 'name', 160);
+  const email = requiredText(formData, 'email', 254).toLowerCase();
+  const phone = optionalText(formData, 'phone', 40);
+  if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Enter a valid email address.');
   const role = enumValue(Role, formData.get('role'), 'role');
   const isActive = formData.get('isActive') === 'on';
+  if (before.role === Role.PROGRAM_LEAD && before.isActive && (role !== Role.PROGRAM_LEAD || !isActive)) {
+    const otherLeads = await prisma.person.count({ where: { id: { not: personId }, role: Role.PROGRAM_LEAD, isActive: true } });
+    if (otherLeads === 0) throw new Error('Create another active Program Lead before changing this account.');
+  }
   await prisma.$transaction(async (tx) => {
-    await tx.person.update({ where: { id: personId }, data: { role, isActive } });
+    await tx.person.update({ where: { id: personId }, data: { name, email, phone, role, isActive } });
     if (!isActive) await tx.authSession.updateMany({ where: { personId, revokedAt: null }, data: { revokedAt: new Date() } });
-    await tx.activityLog.create({ data: auditData({ actor: session.user, entityType: 'Person', entityId: personId, action: 'access_updated', summary: `${before.name}: access updated`, meta: { before: { role: before.role, isActive: before.isActive }, after: { role, isActive } } }) });
+    await tx.activityLog.create({ data: auditData({ actor: session.user, entityType: 'Person', entityId: personId, action: 'account_updated', summary: `${before.name}: account details and access updated`, meta: { before, after: { name, email, phone, role, isActive } } }) });
   });
   revalidatePath('/settings');
+  revalidatePath('/directory');
+  revalidatePath('/audit');
+}
+
+export async function archivePersonAction(formData: FormData) {
+  const session = await requirePermission('people:manage');
+  const personId = requiredText(formData, 'personId', 64);
+  if (personId === session.user.id) throw new Error('You cannot delete your own account.');
+  const person = await prisma.person.findUniqueOrThrow({ where: { id: personId }, select: { name: true, role: true, isActive: true } });
+  if (person.role === Role.PROGRAM_LEAD && person.isActive) {
+    const otherLeads = await prisma.person.count({ where: { id: { not: personId }, role: Role.PROGRAM_LEAD, isActive: true } });
+    if (otherLeads === 0) throw new Error('The final active Program Lead cannot be deleted.');
+  }
+  await prisma.$transaction(async (tx) => {
+    await tx.person.update({ where: { id: personId }, data: { isActive: false } });
+    await tx.authSession.updateMany({ where: { personId, revokedAt: null }, data: { revokedAt: new Date() } });
+    await tx.activityLog.create({ data: auditData({ actor: session.user, entityType: 'Person', entityId: personId, action: 'account_archived', summary: `${person.name}: user access deleted and account archived` }) });
+  });
+  revalidatePath('/settings');
+  revalidatePath('/directory');
   revalidatePath('/audit');
 }
 
