@@ -12,7 +12,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:seed": "prisma db seed"
+    "db:seed": "prisma db seed",
+    "account:create-program-lead": "tsx prisma/create-program-lead.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
