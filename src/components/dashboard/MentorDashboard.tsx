@@ -89,7 +89,7 @@ export async function MentorDashboard({ user }: { user: MentorUser }) {
           <Panel title="Open tickets" href="/tickets">
             {supportRequests.length ? supportRequests.map((request) => <Link href="/tickets" key={request.id} className="block border-t px-5 py-4 first:border-t-0 hover:bg-prise-page/70"><div className="text-sm font-semibold">{request.title}</div><div className="mt-1 flex justify-between gap-3 text-xs text-prise-text-secondary"><span>{request.startup.name}</span><span>{request.status.replaceAll('_', ' ').toLowerCase()}</span></div></Link>) : <Empty text="No open tickets." compact />}
           </Panel>
-          <Panel title="Upcoming webinar" href="/calendar">
+          <Panel title="Upcoming workshop" href="/calendar">
             {webinar ? <div className="flex gap-4 px-5 py-5"><div className="w-14 shrink-0 border-r pr-4 text-center"><div className="text-2xl font-bold">{webinar.startsAt.toLocaleDateString('en-IN', { day: 'numeric', timeZone: 'Asia/Kolkata' })}</div><div className="text-xs text-prise-text-secondary">{webinar.startsAt.toLocaleDateString('en-IN', { month: 'short', timeZone: 'Asia/Kolkata' })}</div></div><div className="min-w-0"><div className="text-xs font-medium text-prise-text-secondary">{webinar.startsAt.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })}</div><div className="mt-1 text-sm font-semibold">{webinar.title}</div><div className="mt-2 flex items-center gap-2 text-xs text-prise-primary"><Video size={14} />View details</div></div></div> : <Empty text="No webinar scheduled." compact />}
           </Panel>
         </div>

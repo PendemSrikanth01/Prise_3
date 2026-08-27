@@ -38,9 +38,9 @@ export function StatCard({
   return (
     <Link
       href={href}
-      className="group block rounded-card bg-white p-5 shadow-card transition-all duration-180 hover:-translate-y-0.5 hover:shadow-card-hover"
+      className="group block rounded-card border border-prise-border bg-white p-4 shadow-card transition-all duration-200 hover:-translate-y-0.5 hover:border-prise-primary/35 hover:shadow-card-hover"
     >
-      <div className={`mb-4 flex h-11 w-11 items-center justify-center rounded-xl ${t.bg} ring-4 ${t.ring}`}>
+      <div className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl ${t.bg} ring-4 ${t.ring}`}>
         <Icon size={20} className={t.icon} strokeWidth={2.25} />
       </div>
       <div className="text-kpi-number text-prise-text">{value}</div>
@@ -72,8 +72,8 @@ export function HeroSpotlightCard({
   ctaHref: string;
 }) {
   return (
-    <div className="rounded-card bg-gradient-to-br from-prise-sidebar via-[#2A2874] to-prise-primary p-6 text-white shadow-card">
-      <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 text-lg font-bold tracking-tight">
+    <div className="rounded-card bg-prise-sidebar p-5 text-white shadow-card">
+      <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-white/14 text-base font-bold tracking-tight">
         P3
       </div>
       <div className="text-sm font-medium text-white/60">{title}</div>
@@ -106,7 +106,7 @@ export type FocusItem = { icon: ReactNode; text: string; href: string };
 
 export function TodaysFocusCard({ items }: { items: FocusItem[] }) {
   return (
-    <div className="rounded-card bg-white p-5 shadow-card">
+    <div className="rounded-card border border-prise-border bg-white p-4 shadow-card">
       <div className="mb-4 text-base font-semibold text-prise-text">Today&apos;s Focus</div>
       {items.length === 0 ? (
         <p className="text-sm text-prise-text-muted">Nothing needs attention right now.</p>

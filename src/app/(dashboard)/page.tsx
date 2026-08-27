@@ -103,14 +103,14 @@ export default async function HomePage() {
   }));
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] p-4 sm:p-6 lg:p-8">
-      <div className="mb-6">
+    <div className="mx-auto w-full max-w-[1500px] p-4 sm:p-5 lg:p-6">
+      <div className="mb-5">
         <h1 className="text-2xl font-bold tracking-[-0.025em] text-prise-text sm:text-[28px]">Good morning, {session.user.name.split(' ')[0]}</h1>
         <p className="mt-1.5 text-sm text-prise-text-secondary">Here is what needs attention across PRISE 3.0 today.</p>
       </div>
       {pendingApplicationCount > 0 ? <Link href="/startups?filter=applications" className="mb-5 flex items-center justify-between rounded-xl border border-accent-purple/20 bg-accent-purple-bg px-4 py-3 text-sm"><span><strong>{pendingApplicationCount} startup application{pendingApplicationCount === 1 ? '' : 's'}</strong> waiting for a program decision</span><span className="font-semibold text-accent-purple">Review →</span></Link> : null}
 
-      <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           icon={AlertCircle}
           value={attentionStartups.length}
@@ -145,7 +145,7 @@ export default async function HomePage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
         <HeroSpotlightCard
           title="PRISE 3.0"
           metricValue={`${activeCount} Active Startups`}
@@ -164,13 +164,13 @@ export default async function HomePage() {
         />
       </div>
 
-      <section className="mt-7" aria-labelledby="quick-actions-title">
+      <section className="mt-6" aria-labelledby="quick-actions-title">
         <h2 id="quick-actions-title" className="text-base font-semibold text-prise-text">Quick actions</h2>
         <p className="mb-4 mt-1 text-sm text-prise-text-secondary">Move directly into the core operating workflow.</p>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <QuickActionCard icon={Building2} title="Startups" subtitle="Open the cohort roster" tone="info" href="/startups" />
           <QuickActionCard icon={Target} title="Milestones" subtitle="Review the 52-item core library" tone="warning" href="/milestones" />
-          <QuickActionCard icon={Users2} title="People" subtitle="Mentors, interns and experts" tone="accent-purple" href="/people" />
+          <QuickActionCard icon={Users2} title="Directory" subtitle="Incubatees, mentors and program team" tone="accent-purple" href="/directory" />
           <QuickActionCard icon={ClipboardCheck} title="Onboarding" subtitle="Resolve missing core items" tone="danger" href="/startups?filter=attention" />
         </div>
       </section>

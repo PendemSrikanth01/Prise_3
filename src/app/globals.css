@@ -1,38 +1,42 @@
 @import "tailwindcss";
 
 :root {
-  --prise-sidebar-bg: #1c1b4b;
-  --prise-sidebar-bg-active: #6d5ef5;
-  --prise-primary: #6d5ef5;
-  --prise-primary-hover: #5b4be0;
-  --prise-page-bg: #f6f6fb;
+  --prise-sidebar-bg: #174f65;
+  --prise-sidebar-bg-active: #397c98;
+  --prise-primary: #397c98;
+  --prise-primary-hover: #2f6b84;
+  --prise-action: #e5393d;
+  --prise-action-hover: #c92d32;
+  --prise-page-bg: #f4f8fa;
   --prise-card-bg: #ffffff;
-  --prise-border: #e8e8f1;
-  --prise-text-primary: #17162d;
-  --prise-text-secondary: #696979;
-  --prise-text-muted: #9a9aa8;
-  --prise-danger: #dc3f50;
+  --prise-border: #dbe6eb;
+  --prise-text-primary: #142832;
+  --prise-text-secondary: #60727b;
+  --prise-text-muted: #8b9aa2;
+  --prise-danger: #c9343a;
   --prise-danger-bg: #fff0f2;
-  --prise-warning: #d9850b;
+  --prise-warning: #c98222;
   --prise-warning-bg: #fff6df;
-  --prise-info: #3678db;
+  --prise-info: #397c98;
   --prise-info-bg: #eef5ff;
-  --prise-success: #17834b;
+  --prise-success: #27845d;
   --prise-success-bg: #eaf8ef;
-  --prise-purple: #7557d9;
-  --prise-purple-bg: #f2efff;
-  --prise-radius-card: 16px;
-  --prise-radius-button: 12px;
-  --prise-radius-input: 12px;
+  --prise-purple: #397c98;
+  --prise-purple-bg: #edf6f9;
+  --prise-radius-card: 14px;
+  --prise-radius-button: 10px;
+  --prise-radius-input: 10px;
   --prise-radius-pill: 999px;
-  --prise-shadow-card: 0 8px 24px rgb(20 19 43 / 6%);
-  --prise-shadow-card-hover: 0 14px 36px rgb(20 19 43 / 10%);
+  --prise-shadow-card: 0 8px 24px rgb(72 48 28 / 7%);
+  --prise-shadow-card-hover: 0 14px 34px rgb(45 86 103 / 12%);
 }
 
 @theme inline {
   --color-prise-sidebar: var(--prise-sidebar-bg);
   --color-prise-primary: var(--prise-primary);
   --color-prise-primary-hover: var(--prise-primary-hover);
+  --color-prise-action: var(--prise-action);
+  --color-prise-action-hover: var(--prise-action-hover);
   --color-prise-page: var(--prise-page-bg);
   --color-prise-border: var(--prise-border);
   --color-prise-text: var(--prise-text-primary);
@@ -54,7 +58,7 @@
   --radius-pill: var(--prise-radius-pill);
   --shadow-card: var(--prise-shadow-card);
   --shadow-card-hover: var(--prise-shadow-card-hover);
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --font-sans: Calibri, Carlito, "Segoe UI", Arial, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
@@ -70,7 +74,9 @@ body {
   margin: 0;
   background: var(--prise-page-bg);
   color: var(--prise-text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-family: Calibri, Carlito, "Segoe UI", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
 }
 
 button,
@@ -86,7 +92,18 @@ textarea {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--prise-primary) 22%, white);
+  background: color-mix(in srgb, var(--prise-primary) 20%, white);
+}
+
+.glass-surface {
+  background: rgb(255 255 255 / 84%);
+  border: 1px solid rgb(57 124 152 / 14%);
+  box-shadow: var(--prise-shadow-card);
+  backdrop-filter: blur(18px) saturate(115%);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .glass-surface { background: #fff; }
 }
 
 @media (prefers-reduced-motion: reduce) {

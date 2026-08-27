@@ -1,11 +1,11 @@
 'use client';
 
-import { Bell, Menu, Search } from 'lucide-react';
+import { Bell, Menu, Search, UserRound } from 'lucide-react';
 import { PriseWordmark } from '@/components/brand/BrandIdentity';
 
 export function TopBar({ onMenu, mobileOpen, userName }: { onMenu: () => void; mobileOpen: boolean; userName: string }) {
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-prise-border bg-white/88 px-4 backdrop-blur-xl sm:px-6">
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-white/15 bg-[#397c98]/95 px-4 text-white shadow-[0_8px_24px_rgb(23_79_101/12%)] backdrop-blur-xl sm:px-6">
       <div className="flex items-center gap-3">
         <button
           type="button"
@@ -13,15 +13,15 @@ export function TopBar({ onMenu, mobileOpen, userName }: { onMenu: () => void; m
           aria-controls="primary-navigation"
           aria-expanded={mobileOpen}
           onClick={onMenu}
-          className="rounded-button p-2 text-prise-text-secondary transition-colors hover:bg-prise-page md:hidden"
+          className="rounded-button p-2 text-white/85 transition-colors hover:bg-white/10 md:hidden"
         >
           <Menu size={19} />
         </button>
-        <PriseWordmark className="h-8 w-[112px] border border-prise-border" />
+        <PriseWordmark className="h-8 w-[112px] border border-white/30" />
       </div>
 
-      <form action="/startups" className="mx-auto hidden w-full max-w-md items-center gap-2 rounded-pill border border-prise-border bg-prise-page px-4 py-2 md:flex">
-        <Search size={16} className="text-prise-text-muted" />
+      <form action="/startups" className="mx-auto hidden h-10 w-full max-w-lg items-center gap-2 rounded-input border border-white/25 bg-white/94 px-4 shadow-sm md:flex">
+        <Search size={16} className="text-prise-primary" />
         <input
           name="q"
           aria-label="Search startups"
@@ -31,8 +31,9 @@ export function TopBar({ onMenu, mobileOpen, userName }: { onMenu: () => void; m
       </form>
 
       <div className="flex items-center gap-2">
-        <div className="hidden text-right sm:block"><div className="text-xs font-semibold text-prise-text">{userName}</div><div className="text-[11px] text-prise-text-muted">Secure session</div></div>
-        <div className="relative rounded-full p-2 text-prise-text-secondary" role="status" aria-label="No new notifications">
+        <div className="hidden text-right sm:block"><div className="text-sm font-semibold text-white">{userName}</div><div className="text-[11px] text-white/65">Secure session</div></div>
+        <div className="hidden h-9 w-9 items-center justify-center rounded-full bg-white/14 text-white sm:flex"><UserRound size={18} /></div>
+        <div className="relative rounded-full p-2 text-white/85" role="status" aria-label="No new notifications">
           <Bell size={18} />
         </div>
       </div>

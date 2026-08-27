@@ -9,7 +9,7 @@ export function PriseWordmark({ className = '', priority = false }: { className?
 }
 
 export function BrandLockup({ variant = 'light', priority = false, className = '' }: { variant?: 'sidebar' | 'login' | 'light'; priority?: boolean; className?: string }) {
-  if (variant === 'sidebar') return <div className={`rounded-2xl bg-white p-3 shadow-[0_8px_30px_rgb(0_0_0/18%)] ${className}`}><BvcsrbLogo priority={priority} /><div className="mt-2 flex items-center gap-2 border-t border-slate-100 pt-2"><PriseWordmark priority={priority} className="h-6 w-[104px] shrink-0" /><span className="text-[10px] font-semibold leading-3 text-slate-500">Incubation tracker</span></div></div>;
+  if (variant === 'sidebar') return <div className={`rounded-card border border-prise-border bg-white p-3 ${className}`}><BvcsrbLogo priority={priority} /><div className="mt-2 flex items-center gap-2 border-t border-prise-border pt-2"><PriseWordmark priority={priority} className="h-6 w-[104px] shrink-0" /><span className="text-[10px] font-semibold leading-3 text-prise-text-secondary">Incubation tracker</span></div></div>;
 
   if (variant === 'login') return <div className={`rounded-2xl bg-white p-4 shadow-[0_12px_40px_rgb(0_0_0/16%)] ${className}`}><BvcsrbLogo priority={priority} /><div className="mt-3 flex items-center justify-between gap-4 border-t border-slate-100 pt-3"><PriseWordmark priority={priority} className="h-8 w-[150px] shrink-0" /><span className="text-right text-[11px] font-semibold leading-4 text-slate-500">Incubation operating system</span></div></div>;
 
