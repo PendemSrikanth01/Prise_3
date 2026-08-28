@@ -4,8 +4,9 @@ import { useActionState, useEffect, useState } from 'react';
 import { ArrowDown, ArrowUp, Check, Save } from 'lucide-react';
 import { saveMatchingPreferencesAction, type MatchingFeedback } from '@/app/actions/matching';
 import { useToast } from '@/components/ui/ToastProvider';
+import Image from 'next/image';
 
-type Candidate = { id: string; title: string; subtitle: string; meta?: string };
+type Candidate = { id: string; title: string; subtitle: string; meta?: string; description?: string; imageUrl?: string; chips?: string[]; stats?: string[] };
 const initialState: MatchingFeedback = { status: 'idle', message: '' };
 
 export function PreferencePicker({ candidates, initialIds, noun }: { candidates: Candidate[]; initialIds: string[]; noun: 'mentor' | 'incubatee' }) {
@@ -33,11 +34,15 @@ export function PreferencePicker({ candidates, initialIds, noun }: { candidates:
       {candidates.map((candidate) => {
         const rank = selected.indexOf(candidate.id);
         const active = rank >= 0;
-        return <div key={candidate.id} className={`rounded-xl border p-4 transition ${active ? 'border-emerald-300 bg-emerald-50/70' : 'border-prise-border bg-white'}`}>
+        return <div key={candidate.id} className={`rounded-xl border p-4 transition ${active ? 'border-emerald-300 bg-emerald-50/70' : 'border-prise-border bg-white hover:border-prise-primary/35'}`}>
           <button type="button" onClick={() => toggle(candidate.id)} aria-pressed={active} className="flex w-full items-start gap-3 text-left">
             <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${active ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 text-transparent'}`}><Check size={14} /></span>
-            <span className="min-w-0 flex-1"><span className="block font-semibold">{candidate.title}</span><span className="mt-1 block text-xs text-prise-text-secondary">{candidate.subtitle}</span>{candidate.meta ? <span className="mt-2 block text-[11px] font-medium text-prise-primary">{candidate.meta}</span> : null}</span>
+            {candidate.imageUrl ? <span className="relative h-11 w-11 shrink-0 overflow-hidden rounded-full bg-prise-page"><Image src={candidate.imageUrl} alt="" fill sizes="44px" className="object-cover" unoptimized /></span> : <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-prise-page text-xs font-bold text-prise-primary">{initials(candidate.title)}</span>}
+            <span className="min-w-0 flex-1"><span className="block font-semibold">{candidate.title}</span><span className="mt-1 block text-xs text-prise-text-secondary">{candidate.subtitle}</span>{candidate.meta ? <span className="mt-2 block text-[11px] font-semibold text-prise-primary">{candidate.meta}</span> : null}</span>
           </button>
+          {candidate.description ? <p className="mt-3 line-clamp-2 text-xs leading-5 text-prise-text-secondary">{candidate.description}</p> : null}
+          {candidate.chips?.length ? <div className="mt-3 flex flex-wrap gap-1.5">{candidate.chips.slice(0, 4).map((chip) => <span key={chip} className="rounded-pill bg-prise-page px-2 py-1 text-[10px] font-semibold text-prise-text-secondary">{chip}</span>)}</div> : null}
+          {candidate.stats?.length ? <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t pt-3 text-[10px] font-semibold text-prise-text-secondary">{candidate.stats.map((stat) => <span key={stat}>{stat}</span>)}</div> : null}
           {active ? <div className="mt-3 flex items-center justify-between border-t border-emerald-200 pt-3"><span className="text-xs font-bold text-emerald-700">Priority {rank + 1}</span><div className="flex gap-1"><button type="button" onClick={() => move(candidate.id, -1)} disabled={rank === 0} aria-label={`Move ${candidate.title} up`} className="rounded-lg border bg-white p-1.5 disabled:opacity-30"><ArrowUp size={14} /></button><button type="button" onClick={() => move(candidate.id, 1)} disabled={rank === selected.length - 1} aria-label={`Move ${candidate.title} down`} className="rounded-lg border bg-white p-1.5 disabled:opacity-30"><ArrowDown size={14} /></button></div></div> : null}
         </div>;
       })}
@@ -50,3 +55,5 @@ export function PreferencePicker({ candidates, initialIds, noun }: { candidates:
     </div>
   </form>;
 }
+
+function initials(name: string) { return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase(); }

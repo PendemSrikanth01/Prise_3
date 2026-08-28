@@ -7,10 +7,10 @@ import { BarChart3, Building2, CalendarDays, FolderKanban, Home, ListChecks, Men
 type Item = { href: string; label: string; icon: typeof Home };
 
 function itemsFor(role: string): Item[] {
-  if (role === 'FOUNDER') return [{ href: '/', label: 'Home', icon: Home }, { href: '/my-startup', label: 'Startup', icon: Building2 }, { href: '/calendar', label: 'Calendar', icon: CalendarDays }, { href: '/directory', label: 'Directory', icon: Users }];
-  if (role === 'MENTOR') return [{ href: '/', label: 'Home', icon: Home }, { href: '/startups', label: 'Startups', icon: Building2 }, { href: '/calendar', label: 'Calendar', icon: CalendarDays }, { href: '/directory', label: 'Directory', icon: Users }];
+  if (role === 'FOUNDER') return [{ href: '/', label: 'Home', icon: Home }, { href: '/my-startup', label: 'Startup', icon: Building2 }, { href: '/work', label: 'Tasks', icon: ListChecks }, { href: '/calendar', label: 'Calendar', icon: CalendarDays }];
+  if (role === 'MENTOR') return [{ href: '/', label: 'Home', icon: Home }, { href: '/startups', label: 'Startups', icon: Building2 }, { href: '/work', label: 'Tasks', icon: ListChecks }, { href: '/calendar', label: 'Calendar', icon: CalendarDays }];
   if (role === 'INVESTOR') return [{ href: '/', label: 'Home', icon: Home }, { href: '/portfolio', label: 'Portfolio', icon: FolderKanban }, { href: '/insights', label: 'Dashboard', icon: BarChart3 }, { href: '/directory', label: 'Directory', icon: Users }];
-  return [{ href: '/', label: 'Home', icon: Home }, { href: '/work', label: 'Work', icon: ListChecks }, { href: '/calendar', label: 'Calendar', icon: CalendarDays }, { href: '/directory', label: 'Directory', icon: Users }];
+  return [{ href: '/', label: 'Home', icon: Home }, { href: '/work', label: 'Tasks', icon: ListChecks }, { href: '/calendar', label: 'Calendar', icon: CalendarDays }, { href: '/directory', label: 'Directory', icon: Users }];
 }
 
 export function MobileNav({ role, onMore }: { role: string; onMore: () => void }) {

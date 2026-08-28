@@ -18,7 +18,7 @@ const PROGRAM_NAV: NavSection[] = [
   { label: 'Workspace', items: [
     { href: '/', label: 'Home', icon: LayoutDashboard },
     { href: '/startups', label: 'Startups', icon: Building2 },
-    { href: '/work', label: 'Work', icon: ListChecks },
+    { href: '/work', label: 'Tasks', icon: ListChecks },
     { href: '/calendar', label: 'Calendar', icon: CalendarDays },
     { href: '/tickets', label: 'Tickets', icon: LifeBuoy },
     { href: '/resources', label: 'Resources', icon: FileText },
@@ -36,6 +36,7 @@ const MENTOR_NAV: NavSection[] = [{ items: [
   { href: '/', label: 'Overview', icon: LayoutDashboard },
   { href: '/mentor-profile', label: 'My Profile', icon: UserRoundCog },
   { href: '/startups', label: 'My Startups', icon: Building2 },
+  { href: '/work', label: 'Tasks', icon: ListChecks },
   { href: '/directory', label: 'Directory', icon: Users },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
   { href: '/tickets', label: 'Tickets', icon: LifeBuoy },

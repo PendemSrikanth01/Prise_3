@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Clock3, ExternalLink, Plus, Trash2, Video, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock3, ExternalLink, Plus, Trash2, Video, X } from 'lucide-react';
 import { AttendanceMode, SessionStatus, SessionType } from '@prisma/client';
 import { clearAttendanceAction, createCalendarEventAction, deleteSessionAction, recordAttendanceAction, updateSessionAction } from '@/app/actions/mentor';
 import { ConfirmButton, SubmitButton } from '@/components/ui/FormButtons';

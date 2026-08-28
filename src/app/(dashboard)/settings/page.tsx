@@ -8,12 +8,14 @@ import { ConfirmButton, SubmitButton } from '@/components/ui/FormButtons';
 import { hasPermission, requireSession } from '@/lib/auth';
 import { roleLabel } from '@/lib/labels';
 import { prisma } from '@/lib/prisma';
+import { ProfileEditor } from '@/components/profile/ProfileEditor';
 
 export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage() {
   const session = await requireSession();
   const canManage = hasPermission(session.user.role, 'people:manage');
+  const profile = await prisma.person.findUniqueOrThrow({ where: { id: session.user.id }, select: { id: true, name: true, email: true, phone: true, organization: true, designation: true, professionalBio: true, profilePhotoKey: true } });
   const [people, startups, assignments, investorShares] = canManage
     ? await Promise.all([
         prisma.person.findMany({
@@ -39,6 +41,8 @@ export default async function SettingsPage() {
           <Info label="Session expires" value={session.expiresAt.toLocaleString('en-IN')} />
         </div>
       </div>
+
+      <ProfileEditor profile={profile} />
 
       <section className="mt-5 rounded-card border bg-white p-5 shadow-card sm:p-6">
         <h2 className="font-semibold">Update your password</h2>

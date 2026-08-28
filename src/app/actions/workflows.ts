@@ -94,6 +94,7 @@ export async function updateStartupAction(formData: FormData) {
   const startupId = requiredText(formData, 'startupId', 64);
   const session = await requireStartupAccess(startupId, 'startup:update');
   const before = await prisma.startup.findUniqueOrThrow({ where: { id: startupId } });
+  const programEditor = isProgramRole(session.user.role);
   const data = {
     name: requiredText(formData, 'name', 180),
     founderName: requiredText(formData, 'founderName', 160),
@@ -103,13 +104,15 @@ export async function updateStartupAction(formData: FormData) {
     state: optionalText(formData, 'state', 100),
     sector: optionalText(formData, 'sector', 160),
     legalStructure: optionalText(formData, 'legalStructure', 160),
-    documentFolderLink: optionalText(formData, 'documentFolderLink', 1000),
-    healthStatus: optionalText(formData, 'healthStatus', 1000),
-    status: enumValue(StartupStatus, formData.get('status'), 'status'),
+    ...(programEditor ? {
+      documentFolderLink: optionalText(formData, 'documentFolderLink', 1000),
+      healthStatus: optionalText(formData, 'healthStatus', 1000),
+      status: enumValue(StartupStatus, formData.get('status'), 'status'),
+    } : {}),
   };
   await prisma.$transaction(async (tx) => {
     await tx.startup.update({ where: { id: startupId }, data });
-    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'Startup', entityId: startupId, action: 'updated', summary: `Updated ${before.name}`, meta: { before: { name: before.name, status: before.status }, after: { name: data.name, status: data.status } } }) });
+    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'Startup', entityId: startupId, action: 'updated', summary: `Updated ${before.name}`, meta: { before: { name: before.name, status: before.status }, after: { name: data.name, status: programEditor ? data.status : before.status } } }) });
   });
   refreshStartup(startupId);
 }
