@@ -27,6 +27,7 @@ export async function sendQueuedNotification(notificationId: string) {
       },
       body: JSON.stringify({
         from: process.env.MAIL_FROM,
+        reply_to: process.env.MAIL_REPLY_TO || undefined,
         to: [notification.recipientEmail],
         subject: notification.subject,
         html: notification.htmlBody,

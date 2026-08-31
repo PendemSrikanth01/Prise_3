@@ -49,6 +49,7 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
       EMAIL_DELIVERY_ENABLED: ${EMAIL_DELIVERY_ENABLED:-false}
       UPLOAD_DIR: /app/uploads
     depends_on:
