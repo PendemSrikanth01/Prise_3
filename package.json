@@ -15,7 +15,8 @@
     "db:seed": "prisma db seed",
     "account:create-program-lead": "tsx prisma/create-program-lead.ts",
     "mentor:import": "tsx prisma/import-mentors.ts",
-    "incubatee:import": "tsx prisma/import-incubatees.ts"
+    "incubatee:import": "tsx prisma/import-incubatees.ts",
+    "account:reset-role-passwords": "tsx prisma/reset-role-passwords.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
