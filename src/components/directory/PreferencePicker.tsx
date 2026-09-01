@@ -5,9 +5,10 @@ import { ArrowDown, ArrowUp, Check, Save } from 'lucide-react';
 import { saveMatchingPreferencesAction, type MatchingFeedback } from '@/app/actions/matching';
 import { useToast } from '@/components/ui/ToastProvider';
 import Image from 'next/image';
+import Link from 'next/link';
 import { MAX_MATCHING_PREFERENCES } from '@/lib/matching';
 
-type Candidate = { id: string; title: string; subtitle: string; meta?: string; description?: string; imageUrl?: string; chips?: string[]; stats?: string[] };
+type Candidate = { id: string; title: string; subtitle: string; meta?: string; description?: string; imageUrl?: string; chips?: string[]; stats?: string[]; profileHref?: string };
 const initialState: MatchingFeedback = { status: 'idle', message: '' };
 
 export function PreferencePicker({ candidates, initialIds, noun }: { candidates: Candidate[]; initialIds: string[]; noun: 'mentor' | 'incubatee' }) {
@@ -52,6 +53,7 @@ export function PreferencePicker({ candidates, initialIds, noun }: { candidates:
           {candidate.description ? <p className="mt-3 line-clamp-2 text-xs leading-5 text-prise-text-secondary">{candidate.description}</p> : null}
           {candidate.chips?.length ? <div className="mt-3 flex flex-wrap gap-1.5">{candidate.chips.slice(0, 4).map((chip) => <span key={chip} className="rounded-pill bg-prise-page px-2 py-1 text-[10px] font-semibold text-prise-text-secondary">{chip}</span>)}</div> : null}
           {candidate.stats?.length ? <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t pt-3 text-[10px] font-semibold text-prise-text-secondary">{candidate.stats.map((stat) => <span key={stat}>{stat}</span>)}</div> : null}
+          {candidate.profileHref ? <Link href={candidate.profileHref} className="mt-3 inline-flex text-xs font-semibold text-prise-primary">View full profile →</Link> : null}
           {active ? <div className="mt-3 flex items-center justify-between border-t border-emerald-200 pt-3"><span className="text-xs font-bold text-emerald-700">Priority {rank + 1}</span><div className="flex gap-1"><button type="button" onClick={() => move(candidate.id, -1)} disabled={rank === 0} aria-label={`Move ${candidate.title} up`} className="rounded-lg border bg-white p-1.5 disabled:opacity-30"><ArrowUp size={14} /></button><button type="button" onClick={() => move(candidate.id, 1)} disabled={rank === selected.length - 1} aria-label={`Move ${candidate.title} down`} className="rounded-lg border bg-white p-1.5 disabled:opacity-30"><ArrowDown size={14} /></button></div></div> : null}
         </div>;
       })}

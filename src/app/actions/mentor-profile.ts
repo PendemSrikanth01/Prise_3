@@ -17,6 +17,7 @@ async function editableMentor(mentorId: string) {
 }
 
 function refreshMentorProfile(mentorId: string) {
+  revalidatePath('/directory');
   revalidatePath('/mentors');
   revalidatePath(`/mentors/${mentorId}`);
   revalidatePath('/mentor-profile');
@@ -25,10 +26,16 @@ function refreshMentorProfile(mentorId: string) {
 export async function updateMentorProfileAction(formData: FormData) {
   const mentorId = requiredText(formData, 'mentorId', 64);
   const { actor, mentor } = await editableMentor(mentorId);
+  const linkedinUrl = optionalText(formData, 'linkedinUrl', 500);
+  if (linkedinUrl && !/^https:\/\/(?:[a-z0-9-]+\.)?linkedin\.com\//i.test(linkedinUrl)) throw new Error('Enter a valid LinkedIn profile URL.');
   const update = {
     organization: optionalText(formData, 'organization', 180),
     designation: optionalText(formData, 'designation', 180),
     professionalBio: optionalText(formData, 'professionalBio', 1500),
+    professionalDomain: optionalText(formData, 'professionalDomain', 240),
+    mentorLocation: optionalText(formData, 'mentorLocation', 180),
+    mentoringFrequency: optionalText(formData, 'mentoringFrequency', 120),
+    linkedinUrl,
     expertiseAreas: parseTagList(formData.get('expertiseAreas')),
     preferredSectors: parseTagList(formData.get('preferredSectors')),
     languages: parseTagList(formData.get('languages'), 8),

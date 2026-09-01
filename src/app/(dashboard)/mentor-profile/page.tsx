@@ -13,6 +13,7 @@ export default async function MyMentorProfilePage() {
     where: { id: auth.user.id },
     select: {
       id: true, name: true, email: true, phone: true, organization: true, designation: true, professionalBio: true,
+      professionalDomain: true, mentorLocation: true, mentoringFrequency: true, linkedinUrl: true,
       expertiseAreas: true, preferredSectors: true, languages: true, maxStartupCapacity: true, acceptingMentees: true,
       yearsExperience: true, profilePhotoKey: true,
       _count: { select: { assignments: { where: { role: 'MENTOR' } } } },

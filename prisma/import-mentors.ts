@@ -11,6 +11,10 @@ type MentorImport = {
   organization?: string;
   designation?: string;
   professionalBio?: string;
+  professionalDomain?: string;
+  mentorLocation?: string;
+  mentoringFrequency?: string;
+  linkedinUrl?: string;
   expertiseAreas?: string[];
   preferredSectors?: string[];
   languages?: string[];
@@ -28,6 +32,20 @@ const credentialsPath = resolve(process.env.MENTOR_CREDENTIALS_FILE || 'private-
 const uploadRoot = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
 const apply = process.env.MENTOR_IMPORT_APPLY === 'true';
 const deactivateUnlisted = process.env.DEACTIVATE_UNLISTED_MENTORS === 'true';
+
+function structuredProfile(mentor: MentorImport) {
+  const bio = mentor.professionalBio || '';
+  const extract = (label: string) => bio.match(new RegExp(`^${label}:\\s*(.+)$`, 'im'))?.[1]?.trim();
+  const linkedin = mentor.linkedinUrl || extract('LinkedIn');
+  const hasStructuredBio = /^(Domain \/ profession|Location|Mentoring frequency|LinkedIn):/im.test(bio);
+  return {
+    professionalBio: hasStructuredBio ? null : mentor.professionalBio || null,
+    professionalDomain: mentor.professionalDomain || extract('Domain / profession') || null,
+    mentorLocation: mentor.mentorLocation || extract('Location') || null,
+    mentoringFrequency: mentor.mentoringFrequency || extract('Mentoring frequency') || null,
+    linkedinUrl: linkedin && /^https:\/\/(?:[a-z0-9-]+\.)?linkedin\.com\//i.test(linkedin) ? linkedin : null,
+  };
+}
 
 function email(value: string) {
   const normalized = value.trim().toLowerCase();
@@ -106,6 +124,7 @@ async function main() {
 
   const credentials = ['name,email,temporary_password'];
   for (const mentor of normalized) {
+    const structured = structuredProfile(mentor);
     const current = existing.find((person) => person.email.toLowerCase() === mentor.email);
     let photo: Awaited<ReturnType<typeof downloadPhoto>> = null;
     if (mentor.photoFile || mentor.photoDriveId) {
@@ -115,8 +134,8 @@ async function main() {
     const passwordHash = password ? await bcrypt.hash(password, 12) : undefined;
     const person = await prisma.person.upsert({
       where: { email: mentor.email },
-      update: { name: mentor.name, phone: mentor.phone || null, role: Role.MENTOR, isActive: true, organization: mentor.organization || null, designation: mentor.designation || null, professionalBio: mentor.professionalBio || null, expertiseAreas: mentor.expertiseAreas || [], preferredSectors: mentor.preferredSectors || [], languages: mentor.languages || [], yearsExperience: mentor.yearsExperience || null, maxStartupCapacity: mentor.maxStartupCapacity || 4, acceptingMentees: true, preferredMeetingMode: mentor.preferredMeetingMode || MentorMeetingMode.FLEXIBLE, ...(photo ? { profilePhotoKey: photo.storageKey, profilePhotoMimeType: photo.mimeType } : {}) },
-      create: { name: mentor.name, email: mentor.email, phone: mentor.phone || null, role: Role.MENTOR, passwordHash: passwordHash!, mustChangePassword: true, organization: mentor.organization || null, designation: mentor.designation || null, professionalBio: mentor.professionalBio || null, expertiseAreas: mentor.expertiseAreas || [], preferredSectors: mentor.preferredSectors || [], languages: mentor.languages || [], yearsExperience: mentor.yearsExperience || null, maxStartupCapacity: mentor.maxStartupCapacity || 4, acceptingMentees: true, preferredMeetingMode: mentor.preferredMeetingMode || MentorMeetingMode.FLEXIBLE, ...(photo ? { profilePhotoKey: photo.storageKey, profilePhotoMimeType: photo.mimeType } : {}) },
+      update: { name: mentor.name, phone: mentor.phone || null, role: Role.MENTOR, isActive: true, organization: mentor.organization || null, designation: mentor.designation || null, ...structured, expertiseAreas: mentor.expertiseAreas || [], preferredSectors: mentor.preferredSectors || [], languages: mentor.languages || [], yearsExperience: mentor.yearsExperience || null, maxStartupCapacity: mentor.maxStartupCapacity || 4, acceptingMentees: true, preferredMeetingMode: mentor.preferredMeetingMode || MentorMeetingMode.FLEXIBLE, ...(photo ? { profilePhotoKey: photo.storageKey, profilePhotoMimeType: photo.mimeType } : {}) },
+      create: { name: mentor.name, email: mentor.email, phone: mentor.phone || null, role: Role.MENTOR, passwordHash: passwordHash!, mustChangePassword: true, organization: mentor.organization || null, designation: mentor.designation || null, ...structured, expertiseAreas: mentor.expertiseAreas || [], preferredSectors: mentor.preferredSectors || [], languages: mentor.languages || [], yearsExperience: mentor.yearsExperience || null, maxStartupCapacity: mentor.maxStartupCapacity || 4, acceptingMentees: true, preferredMeetingMode: mentor.preferredMeetingMode || MentorMeetingMode.FLEXIBLE, ...(photo ? { profilePhotoKey: photo.storageKey, profilePhotoMimeType: photo.mimeType } : {}) },
       select: { id: true, name: true, email: true },
     });
     await prisma.activityLog.create({ data: { entityType: 'Person', entityId: person.id, action: current ? 'mentor_profile_imported' : 'mentor_account_imported', summary: `${person.name}: mentor ${current ? 'profile updated' : 'account imported'}`, meta: { source: 'PrISE 3.0 mentor profile import' } } });
