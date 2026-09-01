@@ -6,6 +6,7 @@ import { auditData } from '@/lib/audit';
 import { hasPermission, requireSession, resolveFounderStartupId } from '@/lib/auth';
 import { optionalText, requiredText } from '@/lib/form';
 import { prisma } from '@/lib/prisma';
+import { normalizeMatchingPreferenceIds } from '@/lib/matching';
 
 export type MatchingFeedback = { status: 'idle' | 'success' | 'error'; message: string };
 
@@ -16,9 +17,8 @@ function message(error: unknown) {
 export async function saveMatchingPreferencesAction(_previous: MatchingFeedback, formData: FormData): Promise<MatchingFeedback> {
   try {
     const session = await requireSession();
-    const selectedIds = [...new Set(formData.getAll('candidateId').filter((value): value is string => typeof value === 'string' && Boolean(value)))];
+    const selectedIds = normalizeMatchingPreferenceIds(formData.getAll('candidateId'));
     const note = optionalText(formData, 'note', 500);
-    if (selectedIds.length === 0) throw new Error('Select at least one preference before submitting.');
 
     if (session.user.role === Role.MENTOR) {
       const eligible = await prisma.startup.findMany({

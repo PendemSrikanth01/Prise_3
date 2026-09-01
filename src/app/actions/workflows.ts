@@ -104,6 +104,7 @@ export async function updateStartupAction(formData: FormData) {
     founderName: requiredText(formData, 'founderName', 160),
     founderEmail: optionalText(formData, 'founderEmail', 254),
     founderPhone: optionalText(formData, 'founderPhone', 40),
+    fullAddress: optionalText(formData, 'fullAddress', 1000),
     operationLocation: optionalText(formData, 'operationLocation', 160),
     state: optionalText(formData, 'state', 100),
     sector: optionalText(formData, 'sector', 160),

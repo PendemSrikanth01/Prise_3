@@ -14,7 +14,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "account:create-program-lead": "tsx prisma/create-program-lead.ts",
-    "mentor:import": "tsx prisma/import-mentors.ts"
+    "mentor:import": "tsx prisma/import-mentors.ts",
+    "incubatee:import": "tsx prisma/import-incubatees.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

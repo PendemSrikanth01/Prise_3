@@ -454,6 +454,7 @@ model Startup {
   founderName       String
   founderEmail      String?
   founderPhone      String?
+  fullAddress       String?
   operationLocation String?
   state             String?
   sector            String?
