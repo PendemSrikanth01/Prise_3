@@ -171,10 +171,21 @@ enum PaymentStatus {
 
 enum NotificationKind {
   ACCOUNT_WELCOME
+  TASK_ASSIGNED
+  TASK_REMINDER
   SUPPORT_OPPORTUNITY
   SESSION_INVITE
+  SESSION_REMINDER
   WEEKLY_PROGRESS
   GENERAL
+}
+
+enum NotificationTemplateKey {
+  ACCOUNT_WELCOME
+  TASK_ASSIGNED
+  TASK_REMINDER
+  SESSION_INVITE
+  SESSION_REMINDER
 }
 
 enum NotificationStatus {
@@ -954,6 +965,18 @@ model Notification {
   @@index([status, scheduledFor])
   @@index([recipientId, createdAt])
   @@index([relatedEntityType, relatedEntityId])
+}
+
+model NotificationTemplate {
+  id              String                  @id @default(cuid())
+  key             NotificationTemplateKey @unique
+  name            String
+  subjectTemplate String
+  bodyTemplate    String
+  isActive        Boolean                 @default(true)
+  autoSend        Boolean                 @default(true)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
 }
 
 model PaymentInstallment {

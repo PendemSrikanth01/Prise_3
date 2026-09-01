@@ -1,7 +1,7 @@
 'use server';
 
 import {
-  AssignmentRole, AttendanceMode, NotificationKind, NotificationStatus, Role, SessionStatus, SessionType,
+  AssignmentRole, AttendanceMode, NotificationKind, NotificationStatus, NotificationTemplateKey, Role, SessionStatus, SessionType,
 } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'node:crypto';
@@ -10,7 +10,7 @@ import { sendQueuedNotification } from '@/lib/email';
 import { enumValue, optionalDateTime, optionalText, requiredDateTime, requiredText } from '@/lib/form';
 import { hasPermission, isProgramRole, requirePermission, requireSession, requireStartupAccess } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { sessionInviteTemplate } from '@/lib/notification-templates';
+import { queueTemplatedNotification } from '@/lib/notification-automation';
 
 const APP_URL = () => process.env.APP_URL || 'http://127.0.0.1:3010';
 
@@ -23,6 +23,18 @@ function refreshMentorWorkspace(startupId?: string | null) {
 
 function validateTimes(startsAt: Date, endsAt: Date | null) {
   if (endsAt && endsAt <= startsAt) throw new Error('End time must be after start time.');
+}
+
+async function queueSessionAutomation(session: { id: string; title: string; startsAt: Date; meetingUrl: string | null }, startupName: string, recipients: Array<{ id: string; name: string; email: string }>, includeInvite: boolean) {
+  const meetingDate = session.startsAt.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
+  const meetingLink = session.meetingUrl || `${APP_URL()}/calendar`;
+  await Promise.all(recipients.flatMap((recipient) => {
+    const variables = { name: recipient.name, startupName, meetingTitle: session.title, meetingDate, meetingLink };
+    return [
+      ...(includeInvite ? [queueTemplatedNotification({ recipientId: recipient.id, recipientEmail: recipient.email, kind: NotificationKind.SESSION_INVITE, templateKey: NotificationTemplateKey.SESSION_INVITE, variables, relatedEntityType: 'Session', relatedEntityId: session.id })] : []),
+      queueTemplatedNotification({ recipientId: recipient.id, recipientEmail: recipient.email, kind: NotificationKind.SESSION_REMINDER, templateKey: NotificationTemplateKey.SESSION_REMINDER, variables, relatedEntityType: 'Session', relatedEntityId: session.id, scheduledFor: new Date(session.startsAt.getTime() - 24 * 60 * 60 * 1000) }),
+    ];
+  }));
 }
 
 function recurrenceOccurrences(formData: FormData, startsAt: Date, endsAt: Date | null) {
@@ -84,16 +96,11 @@ export async function createSessionAction(formData: FormData) {
       },
     }));
     await tx.activityLog.create({ data: auditData({ actor: actor.user, startupId, entityType: 'Session', entityId: sessions[0].id, action: recurrence.groupId ? 'recurring_series_created' : 'created', summary: `${startup.name}: scheduled ${title}${recurrence.groupId ? ` (${sessions.length} meetings)` : ''}` }) });
-    return sessions[0];
+    return sessions;
   });
 
   const recipients = [facilitator, ...(startup.founder?.isActive ? [startup.founder] : [])];
-  await prisma.notification.createMany({
-    data: recipients.map((recipient) => {
-      const template = sessionInviteTemplate({ name: recipient.name, startupName: startup.name, title, startsAt, meetingUrl, url: `${APP_URL()}/calendar` });
-      return { recipientId: recipient.id, recipientEmail: recipient.email, kind: NotificationKind.SESSION_INVITE, subject: template.subject, htmlBody: template.html, textBody: template.text, relatedEntityType: 'Session', relatedEntityId: created.id };
-    }),
-  });
+  await Promise.all(created.map((scheduledSession, index) => queueSessionAutomation(scheduledSession, startup.name, recipients, index === 0)));
   refreshMentorWorkspace(startupId);
 }
 
@@ -128,6 +135,15 @@ export async function updateSessionAction(formData: FormData) {
     await tx.activityLog.create({ data: auditData({ actor: actor.user, startupId: existing.startupId, entityType: 'Session', entityId: sessionId, action: 'updated', summary: `${session.title}: ${status.toLowerCase()}`, meta: { from: existing.status, to: status } }) });
     return session;
   });
+  await prisma.notification.updateMany({ where: { relatedEntityType: 'Session', relatedEntityId: sessionId, kind: { in: [NotificationKind.SESSION_INVITE, NotificationKind.SESSION_REMINDER] }, status: { in: [NotificationStatus.PENDING, NotificationStatus.FAILED] } }, data: { status: NotificationStatus.CANCELLED } });
+  if (updated.startupId && updated.status === SessionStatus.SCHEDULED) {
+    const [startup, recipients] = await Promise.all([
+      prisma.startup.findUniqueOrThrow({ where: { id: updated.startupId }, select: { name: true } }),
+      prisma.person.findMany({ where: { id: { in: updated.participantIds }, isActive: true }, select: { id: true, name: true, email: true } }),
+    ]);
+    const changed = existing.title !== updated.title || existing.startsAt.getTime() !== updated.startsAt.getTime() || existing.meetingUrl !== updated.meetingUrl;
+    await queueSessionAutomation(updated, startup.name, recipients, changed);
+  }
   refreshMentorWorkspace(updated.startupId);
 }
 

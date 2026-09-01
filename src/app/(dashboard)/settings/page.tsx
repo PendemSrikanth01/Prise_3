@@ -1,4 +1,4 @@
-import { Role, StartupMemberRole } from '@prisma/client';
+import { NotificationTemplateKey, Role, StartupMemberRole } from '@prisma/client';
 import { createPersonAction, removeInvestorShareAction, resetPersonPasswordAction, shareStartupWithInvestorAction } from '@/app/actions/workflows';
 import { AccountManager } from '@/components/admin/AccountManager';
 import { PasswordForm } from '@/components/auth/PasswordForm';
@@ -9,6 +9,8 @@ import { hasPermission, requireSession } from '@/lib/auth';
 import { roleLabel } from '@/lib/labels';
 import { prisma } from '@/lib/prisma';
 import { ProfileEditor } from '@/components/profile/ProfileEditor';
+import { NotificationTemplateManager } from '@/components/admin/NotificationTemplateManager';
+import { NOTIFICATION_TEMPLATE_DEFAULTS, renderTemplateContent, sampleTemplateVariables } from '@/lib/notification-templates';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +18,7 @@ export default async function SettingsPage() {
   const session = await requireSession();
   const canManage = hasPermission(session.user.role, 'people:manage');
   const profile = await prisma.person.findUniqueOrThrow({ where: { id: session.user.id }, select: { id: true, name: true, email: true, phone: true, organization: true, designation: true, professionalBio: true, profilePhotoKey: true } });
-  const [people, startups, assignments, investorShares] = canManage
+  const [people, startups, assignments, investorShares, storedTemplates] = canManage
     ? await Promise.all([
         prisma.person.findMany({
           orderBy: { name: 'asc' },
@@ -25,8 +27,18 @@ export default async function SettingsPage() {
         prisma.startup.findMany({ orderBy: { sNo: 'asc' }, select: { id: true, name: true } }),
         prisma.startupAssignment.findMany({ include: { startup: { select: { name: true } }, person: { select: { name: true } } }, orderBy: [{ startup: { name: 'asc' } }, { person: { name: 'asc' } }] }),
         prisma.investorStartupShare.findMany({ include: { startup: { select: { name: true } }, investor: { select: { name: true, email: true } } }, orderBy: [{ startup: { name: 'asc' } }, { investor: { name: 'asc' } }] }),
+        prisma.notificationTemplate.findMany({ orderBy: { key: 'asc' } }),
       ])
-    : [[], [], [], []];
+    : [[], [], [], [], []];
+  const storedByKey = new Map(storedTemplates.map((template) => [template.key, template]));
+  const notificationTemplates = Object.values(NotificationTemplateKey).map((key) => {
+    const stored = storedByKey.get(key);
+    const fallback = NOTIFICATION_TEMPLATE_DEFAULTS[key];
+    const subjectTemplate = stored?.subjectTemplate ?? fallback.subject;
+    const bodyTemplate = stored?.bodyTemplate ?? fallback.body;
+    const preview = renderTemplateContent(subjectTemplate, bodyTemplate, sampleTemplateVariables(key));
+    return { key, name: stored?.name ?? fallback.name, subjectTemplate, bodyTemplate, isActive: stored?.isActive ?? true, autoSend: stored?.autoSend ?? true, previewSubject: preview.subject, previewText: preview.text };
+  });
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-6xl p-4 [&_form]:min-w-0 [&_input]:min-w-0 [&_select]:min-w-0 sm:p-6 lg:p-8">
@@ -52,6 +64,7 @@ export default async function SettingsPage() {
 
       {canManage ? (
         <>
+          <NotificationTemplateManager templates={notificationTemplates} testRecipient={session.user.email} />
           <section className="mt-5 rounded-card border bg-white p-5 shadow-card sm:p-6">
             <h2 className="font-semibold">Create account</h2>
             <p className="mt-1 text-sm text-prise-text-secondary">The person must change the temporary password on first sign-in.</p>

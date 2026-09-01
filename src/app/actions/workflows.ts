@@ -2,7 +2,7 @@
 
 import { hash } from 'bcryptjs';
 import {
-  AssignmentRole, MilestoneStakeholderLane, MilestoneStakeholderState, MilestoneStatus, NotificationKind, OnboardingStatus, PaymentStatus, Priority, ReviewDecision,
+  AssignmentRole, MilestoneStakeholderLane, MilestoneStakeholderState, MilestoneStatus, NotificationKind, NotificationStatus, NotificationTemplateKey, OnboardingStatus, PaymentStatus, Priority, ReviewDecision,
   Role, StartupMemberRole, StartupStatus, SupportRequestStatus, TaskStatus,
   SupportAudience,
 } from '@prisma/client';
@@ -12,7 +12,8 @@ import { enumValue, optionalDate, optionalText, positiveMoney, requiredText, tex
 import { canDeleteTaskRecord, canEditTaskRecord, canManageStartupMembers, isProgramRole, requirePermission, requireSession, requireStartupAccess, startupMemberRole } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { validPassword } from '@/lib/password';
-import { accountWelcomeTemplate, supportOpportunityTemplate } from '@/lib/notification-templates';
+import { supportOpportunityTemplate } from '@/lib/notification-templates';
+import { queueTemplatedNotification } from '@/lib/notification-automation';
 import { setMilestoneLaneState } from '@/lib/milestone-state';
 import { canDeleteSupportRequest } from '@/lib/collaboration-policy';
 
@@ -62,13 +63,16 @@ export async function createStartupMemberAction(formData: FormData) {
   if (!validPassword(password)) throw new Error('Password must contain at least 6 characters.');
   const role = enumValue(StartupMemberRole, formData.get('memberRole'), 'memberRole');
   if (role === StartupMemberRole.OWNER) throw new Error('Ownership transfer is not available here.');
-  await prisma.$transaction(async (tx) => {
+  const account = await prisma.$transaction(async (tx) => {
+    let createdNew = false;
     let person = await tx.person.findUnique({ where: { email }, select: { id: true, role: true } });
     if (person && person.role !== Role.FOUNDER) throw new Error('This email belongs to a non-startup account.');
-    if (!person) person = await tx.person.create({ data: { name: requiredText(formData, 'name', 160), email, role: Role.FOUNDER, passwordHash: await hash(password, 12), mustChangePassword: true } });
+    if (!person) { person = await tx.person.create({ data: { name: requiredText(formData, 'name', 160), email, role: Role.FOUNDER, passwordHash: await hash(password, 12), mustChangePassword: true } }); createdNew = true; }
     const membership = await tx.startupMembership.upsert({ where: { startupId_personId: { startupId, personId: person.id } }, update: { role, isActive: true }, create: { startupId, personId: person.id, role } });
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'StartupMembership', entityId: membership.id, action: 'member_added', summary: `Added ${email} as ${role.toLowerCase()}` }) });
+    return { personId: person.id, createdNew };
   });
+  if (account.createdNew) await queueTemplatedNotification({ recipientId: account.personId, recipientEmail: email, kind: NotificationKind.ACCOUNT_WELCOME, templateKey: NotificationTemplateKey.ACCOUNT_WELCOME, variables: { name: requiredText(formData, 'name', 160), role: 'incubatee', appUrl: `${APP_URL()}/login` }, relatedEntityType: 'Person', relatedEntityId: account.personId });
   refreshStartup(startupId);
 }
 
@@ -188,8 +192,8 @@ export async function createTaskAction(formData: FormData) {
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'Task', entityId: created.id, action: 'created', summary: `Created task: ${created.title}` }) });
     return created;
   });
+  if (task.assigneeId) await queueTaskAutomation(task, true, true);
   refreshStartup(startupId);
-  void task.id;
 }
 
 export async function updateTaskAction(formData: FormData) {
@@ -200,7 +204,7 @@ export async function updateTaskAction(formData: FormData) {
   if (!canEditTaskRecord(session.user, task)) throw new Error('Only the task creator, assignee, or program team can update this task.');
   const status = enumValue(TaskStatus, formData.get('status'), 'status');
   const requestedAssigneeId = optionalText(formData, 'assigneeId', 64);
-  await prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     const canChangeDefinition = isProgramRole(session.user.role) || task.createdById === session.user.id;
     if (canChangeDefinition && requestedAssigneeId) {
       const validAssignee = await tx.person.count({ where: { id: requestedAssigneeId, isActive: true, OR: [{ founderOfStartupId: task.startupId! }, { startupMemberships: { some: { startupId: task.startupId!, isActive: true } } }, { assignments: { some: { startupId: task.startupId! } } }, { role: { in: [Role.PROGRAM_LEAD, Role.PROGRAM_TEAM] } }] } });
@@ -208,8 +212,32 @@ export async function updateTaskAction(formData: FormData) {
     }
     const updated = await tx.task.update({ where: { id: taskId }, data: { ...(canChangeDefinition ? { title: requiredText(formData, 'title', 220), description: optionalText(formData, 'description', 2000), priority: enumValue(Priority, formData.get('priority'), 'priority'), dueDate: optionalDate(formData, 'dueDate'), assigneeId: requestedAssigneeId } : {}), status, blockedReason: status === TaskStatus.BLOCKED ? optionalText(formData, 'blockedReason', 1000) : null, completedAt: status === TaskStatus.DONE ? task.completedAt ?? new Date() : null } });
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: task.startupId, entityType: 'Task', entityId: taskId, action: 'updated', summary: `Updated task: ${updated.title}`, meta: { from: task.status, to: status } }) });
+    return updated;
   });
+  if (updated.assigneeId && updated.status !== TaskStatus.DONE) {
+    const assigneeChanged = task.assigneeId !== updated.assigneeId;
+    const reminderChanged = assigneeChanged || task.dueDate?.getTime() !== updated.dueDate?.getTime() || task.title !== updated.title;
+    if (assigneeChanged) await prisma.notification.updateMany({ where: { relatedEntityId: taskId, kind: NotificationKind.TASK_ASSIGNED, status: { in: [NotificationStatus.PENDING, NotificationStatus.FAILED] } }, data: { status: NotificationStatus.CANCELLED } });
+    if (reminderChanged) await prisma.notification.updateMany({ where: { relatedEntityId: taskId, kind: NotificationKind.TASK_REMINDER, status: { in: [NotificationStatus.PENDING, NotificationStatus.FAILED] } }, data: { status: NotificationStatus.CANCELLED } });
+    if (assigneeChanged || reminderChanged) await queueTaskAutomation(updated, assigneeChanged, reminderChanged);
+  } else if (!updated.assigneeId || updated.status === TaskStatus.DONE) {
+    await prisma.notification.updateMany({ where: { relatedEntityId: taskId, kind: { in: [NotificationKind.TASK_ASSIGNED, NotificationKind.TASK_REMINDER] }, status: { in: [NotificationStatus.PENDING, NotificationStatus.FAILED] } }, data: { status: NotificationStatus.CANCELLED } });
+  }
   refreshStartup(task.startupId);
+}
+
+async function queueTaskAutomation(task: { id: string; startupId: string | null; assigneeId: string | null; title: string; dueDate: Date | null }, assignment: boolean, reminder: boolean) {
+  if (!task.startupId || !task.assigneeId) return;
+  const [startup, assignee] = await Promise.all([
+    prisma.startup.findUniqueOrThrow({ where: { id: task.startupId }, select: { name: true } }),
+    prisma.person.findUniqueOrThrow({ where: { id: task.assigneeId }, select: { id: true, name: true, email: true } }),
+  ]);
+  const dueDate = task.dueDate?.toLocaleDateString('en-IN', { dateStyle: 'medium', timeZone: 'Asia/Kolkata' }) ?? 'No due date';
+  const variables = { name: assignee.name, startupName: startup.name, taskTitle: task.title, dueDate, appUrl: `${APP_URL()}/work` };
+  const jobs = [];
+  if (assignment) jobs.push(queueTemplatedNotification({ recipientId: assignee.id, recipientEmail: assignee.email, kind: NotificationKind.TASK_ASSIGNED, templateKey: NotificationTemplateKey.TASK_ASSIGNED, variables, relatedEntityType: 'Task', relatedEntityId: task.id }));
+  if (reminder && task.dueDate) jobs.push(queueTemplatedNotification({ recipientId: assignee.id, recipientEmail: assignee.email, kind: NotificationKind.TASK_REMINDER, templateKey: NotificationTemplateKey.TASK_REMINDER, variables, relatedEntityType: 'Task', relatedEntityId: task.id, scheduledFor: new Date(task.dueDate.getTime() - 24 * 60 * 60 * 1000) }));
+  await Promise.all(jobs);
 }
 
 export async function deleteTaskAction(formData: FormData) {
@@ -415,8 +443,15 @@ export async function createPersonAction(formData: FormData) {
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'Person', entityId: created.id, action: 'created', summary: `Created ${role.replaceAll('_', ' ').toLowerCase()} account for ${created.name}` }) });
     return created;
   });
-  const template = accountWelcomeTemplate({ name: person.name, role: role === Role.FOUNDER ? 'incubatee' : role.replaceAll('_', ' ').toLowerCase(), loginUrl: `${APP_URL()}/login` });
-  await prisma.notification.create({ data: { recipientId: person.id, recipientEmail: person.email, kind: NotificationKind.ACCOUNT_WELCOME, subject: template.subject, htmlBody: template.html, textBody: template.text, relatedEntityType: 'Person', relatedEntityId: person.id } });
+  await queueTemplatedNotification({
+    recipientId: person.id,
+    recipientEmail: person.email,
+    kind: NotificationKind.ACCOUNT_WELCOME,
+    templateKey: NotificationTemplateKey.ACCOUNT_WELCOME,
+    variables: { name: person.name, role: role === Role.FOUNDER ? 'incubatee' : role.replaceAll('_', ' ').toLowerCase(), appUrl: `${APP_URL()}/login` },
+    relatedEntityType: 'Person',
+    relatedEntityId: person.id,
+  });
   revalidatePath('/settings');
   revalidatePath('/notifications');
   revalidatePath('/people');
