@@ -48,9 +48,9 @@ function cookieIsSecure() {
   return appUrl ? appUrl.startsWith('https://') : process.env.NODE_ENV === 'production';
 }
 
-export async function createAuthSession(personId: string, userAgent?: string | null) {
+export async function createAuthSession(personId: string, userAgent?: string | null, sessionHours = SESSION_HOURS) {
   const token = randomBytes(32).toString('base64url');
-  const expiresAt = new Date(Date.now() + SESSION_HOURS * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + sessionHours * 60 * 60 * 1000);
   await prisma.authSession.create({
     data: {
       personId,

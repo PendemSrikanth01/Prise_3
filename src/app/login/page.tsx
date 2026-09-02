@@ -6,8 +6,9 @@ import styles from './login.module.css';
 
 export const dynamic = 'force-dynamic';
 
-export default async function LoginPage() {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ password?: string }> }) {
   if (await getSession()) redirect('/');
+  const passwordStatus = (await searchParams).password;
 
   return (
     <main className={styles.shell}>
@@ -20,7 +21,7 @@ export default async function LoginPage() {
       <section className={styles.access}>
         <div className={styles.accessInner}>
           <BvcsrbLogo priority className={styles.organisationLogo} />
-          <AuthPanel />
+          <AuthPanel notice={passwordStatus === 'reset' ? 'Password updated. You can now sign in securely.' : undefined} />
           <footer className={styles.footer}>
             <span>PrISE 3.0 Tracker</span>
             <span aria-hidden="true">·</span>

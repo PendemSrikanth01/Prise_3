@@ -312,6 +312,7 @@ model Person {
   assignedSupport           SupportRequest[]             @relation("SupportAssignee")
   activityLogs              ActivityLog[]
   authSessions              AuthSession[]
+  passwordResetTokens       PasswordResetToken[]
   onboardingReviews         OnboardingItem[]             @relation("OnboardingReviewer")
   onboardingUploads         OnboardingDocument[]         @relation("OnboardingUploader")
   facilitatedSessions       Session[]                    @relation("SessionFacilitator")
@@ -334,6 +335,22 @@ model Person {
 
   @@index([role])
   @@index([isActive])
+}
+
+model PasswordResetToken {
+  id              String    @id @default(cuid())
+  personId        String
+  tokenHash       String    @unique
+  requestedIpHash String?
+  expiresAt       DateTime
+  usedAt          DateTime?
+  createdAt       DateTime  @default(now())
+
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId, createdAt])
+  @@index([requestedIpHash, createdAt])
+  @@index([expiresAt])
 }
 
 model AuthSession {

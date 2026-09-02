@@ -6,7 +6,7 @@ import { loginAction } from '@/app/actions/auth';
 
 const inputClass = 'h-11 w-full rounded-input border border-prise-border bg-white px-4 text-[15px] text-prise-text outline-none transition placeholder:text-prise-text-muted focus:border-prise-primary focus:ring-4 focus:ring-prise-primary/10';
 
-export function LoginForm() {
+export function LoginForm({ onForgotPassword }: { onForgotPassword: () => void }) {
   const [state, action, pending] = useActionState(loginAction, undefined);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -17,7 +17,7 @@ export function LoginForm() {
         <input id="email" name="email" type="email" autoComplete="username" required className={inputClass} placeholder="you@organisation.org" />
       </div>
       <div>
-        <label htmlFor="password" className="mb-2 block text-sm font-semibold text-prise-text">Password</label>
+        <div className="mb-2 flex items-center justify-between gap-3"><label htmlFor="password" className="text-sm font-semibold text-prise-text">Password</label><button type="button" onClick={onForgotPassword} className="text-xs font-semibold text-prise-primary hover:underline">Forgot password?</button></div>
         <div className="relative">
           <input id="password" name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" required className={`${inputClass} pr-14`} placeholder="Your secure password" />
           <button type="button" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? 'Hide password' : 'Show password'} className="absolute inset-y-0 right-0 flex w-12 items-center justify-center text-prise-text-secondary transition hover:text-prise-primary">
@@ -25,6 +25,7 @@ export function LoginForm() {
           </button>
         </div>
       </div>
+      <label className="flex items-center gap-2.5 text-sm text-prise-text-secondary"><input name="keepSignedIn" type="checkbox" className="h-4 w-4 rounded border-prise-border accent-prise-primary" /><span>Keep me signed in for 30 days</span></label>
       {state?.error ? <div role="alert" className="rounded-xl bg-[#fff0f1] px-4 py-3 text-sm text-[#b3121a]">{state.error}</div> : null}
       <button disabled={pending} className="group flex h-12 w-full items-center justify-center gap-4 rounded-button bg-prise-action px-5 text-[15px] font-bold text-white shadow-[0_10px_24px_rgb(229_57_61/20%)] transition hover:bg-prise-action-hover disabled:opacity-60">
         {pending ? <LoaderCircle className="animate-spin" size={19} /> : <LockKeyhole size={19} />}
