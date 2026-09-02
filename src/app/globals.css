@@ -7,7 +7,7 @@
   --prise-primary-hover: #2f6b84;
   --prise-action: #e5393d;
   --prise-action-hover: #c92d32;
-  --prise-page-bg: #f4f8fa;
+  --prise-page-bg: #f3f8fa;
   --prise-card-bg: #ffffff;
   --prise-border: #dbe6eb;
   --prise-text-primary: #142832;
@@ -23,12 +23,12 @@
   --prise-success-bg: #eaf8ef;
   --prise-purple: #397c98;
   --prise-purple-bg: #edf6f9;
-  --prise-radius-card: 14px;
+  --prise-radius-card: 18px;
   --prise-radius-button: 10px;
   --prise-radius-input: 10px;
   --prise-radius-pill: 999px;
-  --prise-shadow-card: 0 8px 24px rgb(72 48 28 / 7%);
-  --prise-shadow-card-hover: 0 14px 34px rgb(45 86 103 / 12%);
+  --prise-shadow-card: 0 10px 30px rgb(23 79 101 / 8%);
+  --prise-shadow-card-hover: 0 18px 42px rgb(23 79 101 / 13%);
 }
 
 @theme inline {
@@ -67,7 +67,9 @@
 }
 
 html {
-  background: var(--prise-page-bg);
+  background-color: var(--prise-page-bg);
+  background-image: radial-gradient(circle at 12% 5%, rgb(57 124 152 / 9%), transparent 28rem), radial-gradient(circle at 92% 90%, rgb(229 57 61 / 5%), transparent 26rem), linear-gradient(160deg, #f8fbfc 0%, var(--prise-page-bg) 58%, #eef6f8 100%);
+  background-attachment: fixed;
 }
 
 body {
@@ -86,6 +88,18 @@ textarea {
   font: inherit;
 }
 
+button,
+a,
+input,
+select,
+textarea {
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgb(57 124 152 / 28%); border: 3px solid transparent; border-radius: 999px; background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
 :focus-visible {
   outline: 3px solid color-mix(in srgb, var(--prise-primary) 30%, transparent);
   outline-offset: 2px;
@@ -96,10 +110,10 @@ textarea {
 }
 
 .glass-surface {
-  background: rgb(255 255 255 / 84%);
+  background: linear-gradient(145deg, rgb(255 255 255 / 91%), rgb(255 255 255 / 76%));
   border: 1px solid rgb(57 124 152 / 14%);
   box-shadow: var(--prise-shadow-card);
-  backdrop-filter: blur(18px) saturate(115%);
+  backdrop-filter: blur(20px) saturate(125%);
 }
 
 @supports not (backdrop-filter: blur(1px)) {

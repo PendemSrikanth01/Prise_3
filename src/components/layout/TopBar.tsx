@@ -5,7 +5,7 @@ import { PriseWordmark } from '@/components/brand/BrandIdentity';
 
 export function TopBar({ onMenu, mobileOpen, userName }: { onMenu: () => void; mobileOpen: boolean; userName: string }) {
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-white/15 bg-[#397c98]/95 px-4 text-white shadow-[0_8px_24px_rgb(23_79_101/12%)] backdrop-blur-xl sm:px-6">
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-white/20 bg-[linear-gradient(135deg,rgb(37_104_130/96%),rgb(57_124_152/92%))] px-4 text-white shadow-[0_8px_28px_rgb(23_79_101/15%)] backdrop-blur-2xl sm:px-6">
       <div className="flex items-center gap-3">
         <button
           type="button"
@@ -17,7 +17,7 @@ export function TopBar({ onMenu, mobileOpen, userName }: { onMenu: () => void; m
         >
           <Menu size={19} />
         </button>
-        <PriseWordmark className="h-8 w-[112px] border border-white/30" />
+        <PriseWordmark className="text-white [&>span:last-child]:text-white/70 [&>span>span]:text-[#ff6a6d]" />
       </div>
 
       <form action="/startups" className="mx-auto hidden h-10 w-full max-w-lg items-center gap-2 rounded-input border border-white/25 bg-white/94 px-4 shadow-sm md:flex">
