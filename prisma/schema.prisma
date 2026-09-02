@@ -156,6 +156,12 @@ enum SessionStatus {
   CANCELLED
 }
 
+enum CalendarSyncStatus {
+  NOT_CONNECTED
+  SYNCED
+  ERROR
+}
+
 enum AttendanceMode {
   OFFLINE
   ONLINE
@@ -324,6 +330,7 @@ model Person {
   uploadedResources         Resource[]                   @relation("ResourceUploader")
   mentorMatchPreferences    MentorMatchPreference[]      @relation("MatchPreferenceMentor")
   submittedMatchPreferences MentorMatchPreference[]      @relation("MatchPreferenceSubmitter")
+  googleCalendarConnection  GoogleCalendarConnection?
 
   @@index([role])
   @@index([isActive])
@@ -897,39 +904,60 @@ model SupportMessage {
 }
 
 model Session {
-  id                String        @id @default(cuid())
-  startupId         String?
-  facilitatorId     String?
-  title             String
-  description       String?
-  type              SessionType
-  status            SessionStatus @default(SCHEDULED)
-  startsAt          DateTime
-  endsAt            DateTime?
-  participantIds    String[]
-  isCohortWide      Boolean       @default(false)
-  meetingProvider   String?
-  externalEventId   String?       @unique
-  meetingUrl        String?
-  outcome           String?
-  nextActions       String?
-  insights          String?
-  learnings         String?
-  decisions         String?
-  followUpAt        DateTime?
-  recurrenceGroupId String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  id                   String             @id @default(cuid())
+  startupId            String?
+  facilitatorId        String?
+  title                String
+  description          String?
+  type                 SessionType
+  status               SessionStatus      @default(SCHEDULED)
+  startsAt             DateTime
+  endsAt               DateTime?
+  participantIds       String[]
+  isCohortWide         Boolean            @default(false)
+  meetingProvider      String?
+  externalEventId      String?            @unique
+  meetingUrl           String?
+  calendarConnectionId String?
+  calendarSyncStatus   CalendarSyncStatus @default(NOT_CONNECTED)
+  calendarSyncError    String?
+  calendarSyncedAt     DateTime?
+  outcome              String?
+  nextActions          String?
+  insights             String?
+  learnings            String?
+  decisions            String?
+  followUpAt           DateTime?
+  recurrenceGroupId    String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
-  startup     Startup?           @relation(fields: [startupId], references: [id], onDelete: Cascade)
-  facilitator Person?            @relation("SessionFacilitator", fields: [facilitatorId], references: [id], onDelete: SetNull)
-  attendance  AttendanceRecord[]
+  startup            Startup?                  @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  facilitator        Person?                   @relation("SessionFacilitator", fields: [facilitatorId], references: [id], onDelete: SetNull)
+  calendarConnection GoogleCalendarConnection? @relation(fields: [calendarConnectionId], references: [id], onDelete: SetNull)
+  attendance         AttendanceRecord[]
 
   @@index([startsAt, status])
   @@index([startupId])
   @@index([facilitatorId, startsAt])
   @@index([recurrenceGroupId, startsAt])
+  @@index([calendarConnectionId])
   @@index([participantIds], type: Gin)
+}
+
+model GoogleCalendarConnection {
+  id                    String   @id @default(cuid())
+  personId              String   @unique
+  googleAccountEmail    String
+  refreshTokenEncrypted String
+  scopes                String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  person   Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
+  sessions Session[]
+
+  @@index([googleAccountEmail])
 }
 
 model AttendanceRecord {

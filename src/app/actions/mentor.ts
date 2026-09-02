@@ -11,6 +11,7 @@ import { enumValue, optionalDateTime, optionalText, requiredDateTime, requiredTe
 import { hasPermission, isProgramRole, requirePermission, requireSession, requireStartupAccess } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { queueTemplatedNotification } from '@/lib/notification-automation';
+import { googleConnectionForPerson, removeGoogleEventBeforeSessionDelete, syncNewSessionsToGoogle, syncUpdatedSessionToGoogle } from '@/lib/session-google-sync';
 
 const APP_URL = () => process.env.APP_URL || 'http://127.0.0.1:3010';
 
@@ -75,7 +76,10 @@ export async function createSessionAction(formData: FormData) {
   });
   const participants = [...new Set([facilitator.id, startup.founder?.isActive ? startup.founder.id : null].filter((id): id is string => Boolean(id)))];
   const title = requiredText(formData, 'title', 180);
-  const meetingUrl = optionalText(formData, 'meetingUrl', 1000);
+  const createGoogleMeet = formData.get('createGoogleMeet') === 'on';
+  const googleConnection = createGoogleMeet ? await googleConnectionForPerson(actor.user.id) : null;
+  if (createGoogleMeet && !googleConnection) throw new Error('Connect Google Calendar before creating a Google Meet.');
+  const meetingUrl = createGoogleMeet ? null : optionalText(formData, 'meetingUrl', 1000);
   const recurrence = recurrenceOccurrences(formData, startsAt, endsAt);
 
   const created = await prisma.$transaction(async (tx) => {
@@ -90,7 +94,7 @@ export async function createSessionAction(formData: FormData) {
         startsAt: occurrence.startsAt,
         endsAt: occurrence.endsAt,
         participantIds: participants,
-        meetingProvider: optionalText(formData, 'meetingProvider', 80),
+        meetingProvider: googleConnection ? 'Google Meet' : optionalText(formData, 'meetingProvider', 80),
         meetingUrl,
         recurrenceGroupId: recurrence.groupId,
       },
@@ -100,7 +104,11 @@ export async function createSessionAction(formData: FormData) {
   });
 
   const recipients = [facilitator, ...(startup.founder?.isActive ? [startup.founder] : [])];
-  await Promise.all(created.map((scheduledSession, index) => queueSessionAutomation(scheduledSession, startup.name, recipients, index === 0)));
+  if (googleConnection) await syncNewSessionsToGoogle(created.map(({ id }) => id), googleConnection);
+  const scheduledSessions = googleConnection
+    ? await prisma.session.findMany({ where: { id: { in: created.map(({ id }) => id) } }, orderBy: { startsAt: 'asc' } })
+    : created;
+  await Promise.all(scheduledSessions.map((scheduledSession, index) => queueSessionAutomation(scheduledSession, startup.name, recipients, index === 0)));
   refreshMentorWorkspace(startupId);
 }
 
@@ -123,7 +131,7 @@ export async function updateSessionAction(formData: FormData) {
         status,
         startsAt,
         endsAt,
-        meetingUrl: optionalText(formData, 'meetingUrl', 1000),
+        meetingUrl: existing.calendarConnectionId ? existing.meetingUrl : optionalText(formData, 'meetingUrl', 1000),
         outcome: optionalText(formData, 'outcome', 2500),
         nextActions: optionalText(formData, 'nextActions', 2500),
         insights: optionalText(formData, 'insights', 2500),
@@ -135,16 +143,18 @@ export async function updateSessionAction(formData: FormData) {
     await tx.activityLog.create({ data: auditData({ actor: actor.user, startupId: existing.startupId, entityType: 'Session', entityId: sessionId, action: 'updated', summary: `${session.title}: ${status.toLowerCase()}`, meta: { from: existing.status, to: status } }) });
     return session;
   });
+  if (updated.calendarConnectionId) await syncUpdatedSessionToGoogle(updated.id);
+  const syncedUpdated = updated.calendarConnectionId ? await prisma.session.findUniqueOrThrow({ where: { id: updated.id } }) : updated;
   await prisma.notification.updateMany({ where: { relatedEntityType: 'Session', relatedEntityId: sessionId, kind: { in: [NotificationKind.SESSION_INVITE, NotificationKind.SESSION_REMINDER] }, status: { in: [NotificationStatus.PENDING, NotificationStatus.FAILED] } }, data: { status: NotificationStatus.CANCELLED } });
-  if (updated.startupId && updated.status === SessionStatus.SCHEDULED) {
+  if (syncedUpdated.startupId && syncedUpdated.status === SessionStatus.SCHEDULED) {
     const [startup, recipients] = await Promise.all([
-      prisma.startup.findUniqueOrThrow({ where: { id: updated.startupId }, select: { name: true } }),
-      prisma.person.findMany({ where: { id: { in: updated.participantIds }, isActive: true }, select: { id: true, name: true, email: true } }),
+      prisma.startup.findUniqueOrThrow({ where: { id: syncedUpdated.startupId }, select: { name: true } }),
+      prisma.person.findMany({ where: { id: { in: syncedUpdated.participantIds }, isActive: true }, select: { id: true, name: true, email: true } }),
     ]);
-    const changed = existing.title !== updated.title || existing.startsAt.getTime() !== updated.startsAt.getTime() || existing.meetingUrl !== updated.meetingUrl;
-    await queueSessionAutomation(updated, startup.name, recipients, changed);
+    const changed = existing.title !== syncedUpdated.title || existing.startsAt.getTime() !== syncedUpdated.startsAt.getTime() || existing.meetingUrl !== syncedUpdated.meetingUrl;
+    await queueSessionAutomation(syncedUpdated, startup.name, recipients, changed);
   }
-  refreshMentorWorkspace(updated.startupId);
+  refreshMentorWorkspace(syncedUpdated.startupId);
 }
 
 export async function deleteSessionAction(formData: FormData) {
@@ -154,6 +164,7 @@ export async function deleteSessionAction(formData: FormData) {
     ? await requireStartupAccess(existing.startupId, 'session:manage')
     : await requirePermission('webinar:manage');
   if (existing.status === SessionStatus.COMPLETED) throw new Error('Completed sessions are retained as program evidence.');
+  await removeGoogleEventBeforeSessionDelete(sessionId);
   await prisma.$transaction(async (tx) => {
     await tx.notification.updateMany({ where: { relatedEntityType: 'Session', relatedEntityId: sessionId, status: { not: NotificationStatus.SENT } }, data: { status: NotificationStatus.CANCELLED } });
     await tx.activityLog.create({ data: auditData({ actor: actor.user, startupId: existing.startupId, entityType: 'Session', entityId: sessionId, action: 'deleted', summary: `Deleted session: ${existing.title}` }) });

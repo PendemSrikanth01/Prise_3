@@ -53,6 +53,10 @@ services:
       MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
       EMAIL_DELIVERY_ENABLED: ${EMAIL_DELIVERY_ENABLED:-false}
       UPLOAD_DIR: /app/uploads
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      GOOGLE_TOKEN_ENCRYPTION_KEY: ${GOOGLE_TOKEN_ENCRYPTION_KEY:-}
     depends_on:
       migrate:
         condition: service_completed_successfully

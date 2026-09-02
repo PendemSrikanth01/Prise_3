@@ -3,17 +3,19 @@ import { redirect } from 'next/navigation';
 import { CalendarView } from '@/components/calendar/CalendarView';
 import { accessibleStartupWhere, hasPermission, requireSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { googleCalendarConfigured } from '@/lib/google-calendar';
 
 export const dynamic = 'force-dynamic';
 
-export default async function CalendarPage() {
+export default async function CalendarPage({ searchParams }: { searchParams: Promise<{ google?: string }> }) {
   const auth = await requireSession();
   if (auth.user.role === Role.INVESTOR) redirect('/portfolio');
   const startupScope = accessibleStartupWhere(auth.user);
   const isProgram = auth.user.role === Role.PROGRAM_LEAD || auth.user.role === Role.PROGRAM_TEAM;
   const canManageSessions = hasPermission(auth.user.role, 'session:manage');
   const canManageWebinars = hasPermission(auth.user.role, 'webinar:manage');
-  const [sessions, startups, facilitators] = await Promise.all([
+  const googleConfigured = googleCalendarConfigured();
+  const [sessions, startups, facilitators, googleConnection] = await Promise.all([
     prisma.session.findMany({
       where: isProgram ? {} : {
         OR: [
@@ -30,7 +32,11 @@ export default async function CalendarPage() {
     isProgram
       ? prisma.person.findMany({ where: { isActive: true, role: { in: [Role.MENTOR, Role.PROGRAM_LEAD, Role.PROGRAM_TEAM, Role.EXPERT] } }, orderBy: { name: 'asc' }, select: { id: true, name: true, role: true } })
       : Promise.resolve([]),
+    (canManageSessions || canManageWebinars) && googleConfigured
+      ? prisma.googleCalendarConnection.findUnique({ where: { personId: auth.user.id }, select: { googleAccountEmail: true } })
+      : Promise.resolve(null),
   ]);
+  const googleStatus = (await searchParams).google;
 
   return <CalendarView
     events={sessions.map((session) => ({
@@ -42,6 +48,9 @@ export default async function CalendarPage() {
       startsAt: session.startsAt.toISOString(),
       endsAt: session.endsAt?.toISOString() ?? null,
       meetingUrl: session.meetingUrl,
+      externalEventId: session.externalEventId,
+      calendarSyncStatus: session.calendarSyncStatus,
+      calendarSyncError: session.calendarSyncError,
       outcome: session.outcome,
       nextActions: session.nextActions,
       insights: session.insights,
@@ -58,5 +67,6 @@ export default async function CalendarPage() {
     canManageSessions={canManageSessions}
     canManageWebinars={canManageWebinars}
     canManageAttendance={isProgram}
+    googleCalendar={{ configured: googleConfigured, connectedEmail: googleConnection?.googleAccountEmail ?? null, status: googleStatus ?? null }}
   />;
 }
