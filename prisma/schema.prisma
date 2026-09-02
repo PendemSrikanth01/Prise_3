@@ -292,38 +292,38 @@ model Person {
   founderOfStartupId String?  @unique
   founderOfStartup   Startup? @relation("FounderPerson", fields: [founderOfStartupId], references: [id])
 
-  assignments             StartupAssignment[]
-  startupMemberships      StartupMembership[]
-  investorShares          InvestorStartupShare[]       @relation("InvestorShares")
-  assignedTasks           Task[]                       @relation("TaskAssignee")
-  createdTasks            Task[]                       @relation("TaskCreator")
-  reviewedMilestones      Milestone[]                  @relation("MilestoneReviewer")
-  uploadedDeliverables    Deliverable[]                @relation("DeliverableUploader")
-  reviewedDeliverables    Deliverable[]                @relation("DeliverableReviewer")
-  milestoneStatusUpdates  MilestoneStakeholderStatus[] @relation("MilestoneStatusUpdater")
-  milestoneReviews        MilestoneReview[]            @relation("MilestoneReviewAuthor")
-  requestedSupport        SupportRequest[]             @relation("SupportRequester")
-  assignedSupport         SupportRequest[]             @relation("SupportAssignee")
-  activityLogs            ActivityLog[]
-  authSessions            AuthSession[]
-  onboardingReviews       OnboardingItem[]             @relation("OnboardingReviewer")
-  onboardingUploads       OnboardingDocument[]         @relation("OnboardingUploader")
-  facilitatedSessions     Session[]                    @relation("SessionFacilitator")
-  notifications           Notification[]               @relation("NotificationRecipient")
-  ownedProgramActions     ProgramAction[]              @relation("ProgramActionOwner")
-  createdProgramActions   ProgramAction[]              @relation("ProgramActionCreator")
-  approvedProgramActions  ProgramAction[]              @relation("ProgramActionApprover")
-  ownedProgramSubtasks    ProgramActionSubtask[]       @relation("ProgramSubtaskOwner")
-  uploadedProgramEvidence ProgramActionEvidence[]      @relation("ProgramEvidenceUploader")
-  reviewedProgramEvidence ProgramActionEvidence[]      @relation("ProgramEvidenceReviewer")
-  recordedAttendance      AttendanceRecord[]           @relation("AttendanceRecorder")
-  mentorAvailability      MentorAvailability[]         @relation("MentorAvailability")
-  taskComments            TaskComment[]                @relation("TaskCommentAuthor")
-  supportMessages         SupportMessage[]             @relation("SupportMessageAuthor")
-  supportParticipants     SupportParticipant[]         @relation("SupportParticipantPerson")
-  uploadedResources       Resource[]                   @relation("ResourceUploader")
-  mentorMatchPreferences  MentorMatchPreference[]      @relation("MatchPreferenceMentor")
-  submittedMatchPreferences MentorMatchPreference[]    @relation("MatchPreferenceSubmitter")
+  assignments               StartupAssignment[]
+  startupMemberships        StartupMembership[]
+  investorShares            InvestorStartupShare[]       @relation("InvestorShares")
+  assignedTasks             Task[]                       @relation("TaskAssignee")
+  createdTasks              Task[]                       @relation("TaskCreator")
+  reviewedMilestones        Milestone[]                  @relation("MilestoneReviewer")
+  uploadedDeliverables      Deliverable[]                @relation("DeliverableUploader")
+  reviewedDeliverables      Deliverable[]                @relation("DeliverableReviewer")
+  milestoneStatusUpdates    MilestoneStakeholderStatus[] @relation("MilestoneStatusUpdater")
+  milestoneReviews          MilestoneReview[]            @relation("MilestoneReviewAuthor")
+  requestedSupport          SupportRequest[]             @relation("SupportRequester")
+  assignedSupport           SupportRequest[]             @relation("SupportAssignee")
+  activityLogs              ActivityLog[]
+  authSessions              AuthSession[]
+  onboardingReviews         OnboardingItem[]             @relation("OnboardingReviewer")
+  onboardingUploads         OnboardingDocument[]         @relation("OnboardingUploader")
+  facilitatedSessions       Session[]                    @relation("SessionFacilitator")
+  notifications             Notification[]               @relation("NotificationRecipient")
+  ownedProgramActions       ProgramAction[]              @relation("ProgramActionOwner")
+  createdProgramActions     ProgramAction[]              @relation("ProgramActionCreator")
+  approvedProgramActions    ProgramAction[]              @relation("ProgramActionApprover")
+  ownedProgramSubtasks      ProgramActionSubtask[]       @relation("ProgramSubtaskOwner")
+  uploadedProgramEvidence   ProgramActionEvidence[]      @relation("ProgramEvidenceUploader")
+  reviewedProgramEvidence   ProgramActionEvidence[]      @relation("ProgramEvidenceReviewer")
+  recordedAttendance        AttendanceRecord[]           @relation("AttendanceRecorder")
+  mentorAvailability        MentorAvailability[]         @relation("MentorAvailability")
+  taskComments              TaskComment[]                @relation("TaskCommentAuthor")
+  supportMessages           SupportMessage[]             @relation("SupportMessageAuthor")
+  supportParticipants       SupportParticipant[]         @relation("SupportParticipantPerson")
+  uploadedResources         Resource[]                   @relation("ResourceUploader")
+  mentorMatchPreferences    MentorMatchPreference[]      @relation("MatchPreferenceMentor")
+  submittedMatchPreferences MentorMatchPreference[]      @relation("MatchPreferenceSubmitter")
 
   @@index([role])
   @@index([isActive])
@@ -388,8 +388,8 @@ model MentorMatchPreference {
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
 
-  mentor     Person  @relation("MatchPreferenceMentor", fields: [mentorId], references: [id], onDelete: Cascade)
-  startup    Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  mentor      Person  @relation("MatchPreferenceMentor", fields: [mentorId], references: [id], onDelete: Cascade)
+  startup     Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
   submittedBy Person? @relation("MatchPreferenceSubmitter", fields: [submittedById], references: [id], onDelete: SetNull)
 
   @@unique([source, mentorId, startupId])
@@ -470,23 +470,29 @@ model Startup {
   totalFeePaid       Decimal? @default(0) @db.Decimal(10, 2)
   documentFolderLink String?
 
+  logoStorageKey       String?
+  logoMimeType         String?
+  profilePdfStorageKey String?
+  profilePdfName       String?
+  profilePdfSizeBytes  Int?
+
   status       StartupStatus @default(ACTIVE)
   healthStatus String? // free-text next-action / health note for Home screen
 
-  founder             Person?                @relation("FounderPerson")
-  onboardingItems     OnboardingItem[]
-  milestones          Milestone[]
-  tasks               Task[]
-  assignments         StartupAssignment[]
-  memberships         StartupMembership[]
-  investorShares      InvestorStartupShare[]
-  supportRequests     SupportRequest[]
-  sessions            Session[]
-  paymentInstallments PaymentInstallment[]
-  attendanceRecords   AttendanceRecord[]
-  activityLogs        ActivityLog[]          @relation("StartupActivity")
-  taskComments        TaskComment[]
-  supportMessages     SupportMessage[]
+  founder                Person?                 @relation("FounderPerson")
+  onboardingItems        OnboardingItem[]
+  milestones             Milestone[]
+  tasks                  Task[]
+  assignments            StartupAssignment[]
+  memberships            StartupMembership[]
+  investorShares         InvestorStartupShare[]
+  supportRequests        SupportRequest[]
+  sessions               Session[]
+  paymentInstallments    PaymentInstallment[]
+  attendanceRecords      AttendanceRecord[]
+  activityLogs           ActivityLog[]           @relation("StartupActivity")
+  taskComments           TaskComment[]
+  supportMessages        SupportMessage[]
   mentorMatchPreferences MentorMatchPreference[]
 
   createdAt DateTime @default(now())
@@ -891,29 +897,29 @@ model SupportMessage {
 }
 
 model Session {
-  id              String        @id @default(cuid())
-  startupId       String?
-  facilitatorId   String?
-  title           String
-  description     String?
-  type            SessionType
-  status          SessionStatus @default(SCHEDULED)
-  startsAt        DateTime
-  endsAt          DateTime?
-  participantIds  String[]
-  isCohortWide    Boolean       @default(false)
-  meetingProvider String?
-  externalEventId String?       @unique
-  meetingUrl      String?
-  outcome         String?
-  nextActions     String?
-  insights        String?
-  learnings       String?
-  decisions       String?
-  followUpAt      DateTime?
+  id                String        @id @default(cuid())
+  startupId         String?
+  facilitatorId     String?
+  title             String
+  description       String?
+  type              SessionType
+  status            SessionStatus @default(SCHEDULED)
+  startsAt          DateTime
+  endsAt            DateTime?
+  participantIds    String[]
+  isCohortWide      Boolean       @default(false)
+  meetingProvider   String?
+  externalEventId   String?       @unique
+  meetingUrl        String?
+  outcome           String?
+  nextActions       String?
+  insights          String?
+  learnings         String?
+  decisions         String?
+  followUpAt        DateTime?
   recurrenceGroupId String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   startup     Startup?           @relation(fields: [startupId], references: [id], onDelete: Cascade)
   facilitator Person?            @relation("SessionFacilitator", fields: [facilitatorId], references: [id], onDelete: SetNull)

@@ -8,7 +8,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { MAX_MATCHING_PREFERENCES } from '@/lib/matching';
 
-type Candidate = { id: string; title: string; subtitle: string; meta?: string; description?: string; imageUrl?: string; chips?: string[]; stats?: string[]; profileHref?: string };
+type Candidate = { id: string; title: string; subtitle: string; meta?: string; description?: string; imageUrl?: string; imageFit?: 'cover' | 'contain'; chips?: string[]; stats?: string[]; profileHref?: string };
 const initialState: MatchingFeedback = { status: 'idle', message: '' };
 
 export function PreferencePicker({ candidates, initialIds, noun }: { candidates: Candidate[]; initialIds: string[]; noun: 'mentor' | 'incubatee' }) {
@@ -47,7 +47,7 @@ export function PreferencePicker({ candidates, initialIds, noun }: { candidates:
         return <div key={candidate.id} className={`rounded-xl border p-4 transition ${active ? 'border-emerald-300 bg-emerald-50/70' : blocked ? 'border-prise-border bg-slate-50 opacity-60' : 'border-prise-border bg-white hover:border-prise-primary/35'}`}>
           <button type="button" onClick={() => toggle(candidate.id)} aria-pressed={active} aria-disabled={blocked} className="flex w-full items-start gap-3 text-left">
             <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${active ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 text-transparent'}`}><Check size={14} /></span>
-            {candidate.imageUrl ? <span className="relative h-11 w-11 shrink-0 overflow-hidden rounded-full bg-prise-page"><Image src={candidate.imageUrl} alt="" fill sizes="44px" className="object-cover" unoptimized /></span> : <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-prise-page text-xs font-bold text-prise-primary">{initials(candidate.title)}</span>}
+            {candidate.imageUrl ? <span className={`relative h-11 w-11 shrink-0 overflow-hidden bg-white ${(candidate.imageFit === 'contain' || candidate.imageUrl.includes('/api/startup-logo/')) ? 'rounded-lg border' : 'rounded-full'}`}><Image src={candidate.imageUrl} alt="" fill sizes="44px" className={(candidate.imageFit === 'contain' || candidate.imageUrl.includes('/api/startup-logo/')) ? 'object-contain p-1' : 'object-cover'} unoptimized /></span> : <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-prise-page text-xs font-bold text-prise-primary">{initials(candidate.title)}</span>}
             <span className="min-w-0 flex-1"><span className="block font-semibold">{candidate.title}</span><span className="mt-1 block text-xs text-prise-text-secondary">{candidate.subtitle}</span>{candidate.meta ? <span className="mt-2 block text-[11px] font-semibold text-prise-primary">{candidate.meta}</span> : null}</span>
           </button>
           {candidate.description ? <p className="mt-3 line-clamp-2 text-xs leading-5 text-prise-text-secondary">{candidate.description}</p> : null}

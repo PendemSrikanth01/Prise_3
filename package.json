@@ -16,6 +16,7 @@
     "account:create-program-lead": "tsx prisma/create-program-lead.ts",
     "mentor:import": "tsx prisma/import-mentors.ts",
     "incubatee:import": "tsx prisma/import-incubatees.ts",
+    "incubatee-assets:import": "tsx prisma/import-incubatee-assets.ts",
     "account:reset-role-passwords": "tsx prisma/reset-role-passwords.ts"
   },
   "prisma": {
