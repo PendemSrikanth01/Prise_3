@@ -12,6 +12,7 @@ import { hasPermission, isProgramRole, requirePermission, requireSession, requir
 import { prisma } from '@/lib/prisma';
 import { queueTemplatedNotification } from '@/lib/notification-automation';
 import { googleConnectionForPerson, removeGoogleEventBeforeSessionDelete, syncNewSessionsToGoogle, syncUpdatedSessionToGoogle } from '@/lib/session-google-sync';
+import { validateSessionTimes } from '@/lib/calendar-time';
 
 const APP_URL = () => process.env.APP_URL || 'http://127.0.0.1:3010';
 
@@ -20,10 +21,6 @@ function refreshMentorWorkspace(startupId?: string | null) {
   revalidatePath('/calendar');
   revalidatePath('/notifications');
   if (startupId) revalidatePath(`/startups/${startupId}`);
-}
-
-function validateTimes(startsAt: Date, endsAt: Date | null) {
-  if (endsAt && endsAt <= startsAt) throw new Error('End time must be after start time.');
 }
 
 async function queueSessionAutomation(session: { id: string; title: string; startsAt: Date; meetingUrl: string | null }, startupName: string, recipients: Array<{ id: string; name: string; email: string }>, includeInvite: boolean) {
@@ -42,16 +39,17 @@ function recurrenceOccurrences(formData: FormData, startsAt: Date, endsAt: Date 
   if (formData.get('recurring') !== 'on') return { groupId: null, occurrences: [{ startsAt, endsAt }] };
   const untilValue = formData.get('recurrenceUntil');
   if (typeof untilValue !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(untilValue)) throw new Error('Choose when the recurring schedule ends.');
-  const until = new Date(`${untilValue}T23:59:59`);
+  const until = new Date(`${untilValue}T23:59:59+05:30`);
   if (until < startsAt) throw new Error('Recurring end date must be after the first meeting.');
   const selectedDays = new Set(formData.getAll('recurrenceDay').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6));
-  if (!selectedDays.size) selectedDays.add(startsAt.getDay());
+  const indiaDay = (date: Date) => new Date(date.getTime() + 330 * 60 * 1000).getUTCDay();
+  if (!selectedDays.size) selectedDays.add(indiaDay(startsAt));
   const duration = endsAt ? endsAt.getTime() - startsAt.getTime() : null;
   const occurrences: Array<{ startsAt: Date; endsAt: Date | null }> = [];
-  const cursor = new Date(startsAt);
+  let cursor = new Date(startsAt);
   while (cursor <= until && occurrences.length < 90) {
-    if (selectedDays.has(cursor.getDay())) occurrences.push({ startsAt: new Date(cursor), endsAt: duration === null ? null : new Date(cursor.getTime() + duration) });
-    cursor.setDate(cursor.getDate() + 1);
+    if (selectedDays.has(indiaDay(cursor))) occurrences.push({ startsAt: new Date(cursor), endsAt: duration === null ? null : new Date(cursor.getTime() + duration) });
+    cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
   }
   if (!occurrences.length) throw new Error('No meetings fall within the selected recurrence range.');
   return { groupId: randomUUID(), occurrences };
@@ -62,7 +60,7 @@ export async function createSessionAction(formData: FormData) {
   const actor = await requireStartupAccess(startupId, 'session:manage');
   const startsAt = requiredDateTime(formData, 'startsAt');
   const endsAt = optionalDateTime(formData, 'endsAt');
-  validateTimes(startsAt, endsAt);
+  validateSessionTimes(startsAt, endsAt);
 
   const startup = await prisma.startup.findUniqueOrThrow({
     where: { id: startupId },
@@ -120,7 +118,7 @@ export async function updateSessionAction(formData: FormData) {
     : await requirePermission('webinar:manage');
   const startsAt = requiredDateTime(formData, 'startsAt');
   const endsAt = optionalDateTime(formData, 'endsAt');
-  validateTimes(startsAt, endsAt);
+  validateSessionTimes(startsAt, endsAt);
   const status = enumValue(SessionStatus, formData.get('status'), 'status');
   const updated = await prisma.$transaction(async (tx) => {
     const session = await tx.session.update({
@@ -212,7 +210,7 @@ export async function createWebinarAction(formData: FormData) {
   const actor = await requirePermission('webinar:manage');
   const startsAt = requiredDateTime(formData, 'startsAt');
   const endsAt = optionalDateTime(formData, 'endsAt');
-  validateTimes(startsAt, endsAt);
+  validateSessionTimes(startsAt, endsAt);
   const recurrence = recurrenceOccurrences(formData, startsAt, endsAt);
   const webinar = await prisma.$transaction(async (tx) => {
     const sessions = [];

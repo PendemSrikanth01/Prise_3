@@ -11,6 +11,7 @@ import { auditData } from '@/lib/audit';
 import { enumValue, optionalDate, optionalText, positiveMoney, requiredText, text } from '@/lib/form';
 import { canDeleteTaskRecord, canEditTaskRecord, canManageStartupMembers, isProgramRole, requirePermission, requireSession, requireStartupAccess, startupMemberRole } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { milestoneFinalizationPatch, reviewDecisionLaneState } from '@/lib/milestone-workflow';
 import { validPassword } from '@/lib/password';
 import { supportOpportunityTemplate } from '@/lib/notification-templates';
 import { queueTemplatedNotification } from '@/lib/notification-automation';
@@ -38,7 +39,7 @@ export async function reviewStartupApplicationAction(formData: FormData) {
     if (decision === 'APPROVE') {
       const existingMilestones = await tx.milestone.count({ where: { startupId } });
       if (!existingMilestones) {
-        const templates = await tx.milestoneTemplate.findMany({ where: { isActive: true, scope: 'STARTUP' }, orderBy: [{ phase: 'asc' }, { title: 'asc' }], take: 10 });
+        const templates = await tx.milestoneTemplate.findMany({ where: { isActive: true, scope: 'STARTUP' }, orderBy: [{ phase: 'asc' }, { title: 'asc' }] });
         if (templates.length) await tx.milestone.createMany({ data: templates.map((template) => ({ startupId, templateId: template.id, phase: template.phase, title: template.title, keyActivity: template.keyActivity, deliverable: template.deliverable, effort: template.effort })) });
       }
       await tx.startup.update({ where: { id: startupId }, data: { status: StartupStatus.ACTIVE, healthStatus: optionalText(formData, 'remarks', 1000) } });
@@ -162,7 +163,7 @@ export async function assignMilestonesAction(_previous: ActionFeedback, formData
     for (const template of templates) {
       await tx.milestone.upsert({
         where: { startupId_templateId: { startupId, templateId: template.id } },
-        update: { phase: template.phase, title: template.title, keyActivity: template.keyActivity, deliverable: template.deliverable, effort: template.effort, isFinalized: isProgramRole(session.user.role) },
+        update: { phase: template.phase, title: template.title, keyActivity: template.keyActivity, deliverable: template.deliverable, effort: template.effort, ...milestoneFinalizationPatch(isProgramRole(session.user.role)) },
         create: { startupId, templateId: template.id, phase: template.phase, title: template.title, keyActivity: template.keyActivity, deliverable: template.deliverable, effort: template.effort, isFinalized: isProgramRole(session.user.role) },
       });
     }
@@ -260,10 +261,12 @@ export async function reviewMilestoneAction(formData: FormData) {
   const session = await requireStartupAccess(milestone.startupId, 'milestone:review');
   const decision = enumValue(ReviewDecision, formData.get('decision'), 'decision');
   const lane = session.user.role === Role.MENTOR ? MilestoneStakeholderLane.MENTOR : MilestoneStakeholderLane.PROGRAM;
-  const laneState = decision === ReviewDecision.APPROVED ? MilestoneStakeholderState.APPROVED : decision === ReviewDecision.REVISION_REQUESTED ? MilestoneStakeholderState.NEEDS_REVISION : MilestoneStakeholderState.IN_PROGRESS;
+  const laneState = reviewDecisionLaneState(decision);
   await prisma.$transaction(async (tx) => {
     await tx.milestoneReview.create({ data: { milestoneId, reviewerId: session.user.id, decision, feedback: optionalText(formData, 'feedback', 2500) } });
-    const status = await setMilestoneLaneState(tx, { milestoneId, lane, state: laneState, updatedById: session.user.id, note: optionalText(formData, 'feedback', 2500) });
+    const status = laneState === null
+      ? milestone.status
+      : await setMilestoneLaneState(tx, { milestoneId, lane, state: laneState, updatedById: session.user.id, note: optionalText(formData, 'feedback', 2500) });
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: milestone.startupId, entityType: 'Milestone', entityId: milestoneId, action: 'reviewed', summary: `${milestone.title}: ${decision.replaceAll('_', ' ')}`, meta: { from: milestone.status, to: status, lane } }) });
   });
   refreshStartup(milestone.startupId);

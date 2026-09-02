@@ -87,6 +87,7 @@ export async function uploadDeliverableAction(_: UploadState, formData: FormData
     const milestoneId = requiredText(formData, 'milestoneId', 64);
     const milestone = await prisma.milestone.findUniqueOrThrow({ where: { id: milestoneId }, select: { id: true, startupId: true, title: true } });
     const session = await requireStartupAccess(milestone.startupId, 'deliverable:upload');
+    if (session.user.role !== Role.FOUNDER && session.user.role !== Role.PROGRAM_LEAD) return { error: 'Only the incubatee or Program Lead can add milestone evidence.' };
     const file = formData.get('file');
     if (!(file instanceof File)) return { error: 'Choose a file to upload.' };
     const stored = await storePrivateUpload(file);
@@ -132,8 +133,9 @@ export async function archiveDeliverableAction(formData: FormData) {
   const deliverable = await prisma.deliverable.findUniqueOrThrow({ where: { id: deliverableId }, include: { milestone: { select: { startupId: true } } } });
   const session = await requireSession();
   await requireStartupAccess(deliverable.milestone.startupId);
-  const mayArchive = hasPermission(session.user.role, 'deliverable:review') || (session.user.id === deliverable.uploaderId && deliverable.status !== DeliverableStatus.APPROVED);
-  if (!mayArchive) throw new Error('Approved evidence cannot be removed by the startup.');
+  const incubateeOwnsFile = session.user.role === Role.FOUNDER && session.user.id === deliverable.uploaderId && deliverable.status !== DeliverableStatus.APPROVED;
+  const mayArchive = session.user.role === Role.PROGRAM_LEAD || incubateeOwnsFile;
+  if (!mayArchive) throw new Error('Only the incubatee who uploaded this evidence or the Program Lead can remove it.');
   await prisma.$transaction(async (tx) => {
     await tx.deliverable.update({ where: { id: deliverableId }, data: { status: DeliverableStatus.ARCHIVED } });
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId: deliverable.milestone.startupId, entityType: 'Deliverable', entityId: deliverableId, action: 'archived', summary: `Archived document: ${deliverable.name}` }) });

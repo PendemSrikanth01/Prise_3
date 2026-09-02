@@ -4,7 +4,7 @@ import { accessibleStartupWhere, isProgramRole, requireSession } from '@/lib/aut
 import { prisma } from '@/lib/prisma';
 import { readPrivateUpload, safeDownloadName } from '@/lib/uploads';
 
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await requireSession();
   const { id } = await params;
   let deliverable = await prisma.deliverable.findFirst({
@@ -19,7 +19,8 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   if (!deliverable) return new NextResponse('Not found', { status: 404 });
   try {
     const bytes = await readPrivateUpload(deliverable.storageKey);
-    return new NextResponse(bytes, { headers: { 'Content-Type': deliverable.mimeType || 'application/octet-stream', 'Content-Length': String(deliverable.sizeBytes ?? bytes.byteLength), 'Content-Disposition': `attachment; filename="${safeDownloadName(deliverable.name)}"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
+    const disposition = new URL(request.url).searchParams.get('view') === '1' ? 'inline' : 'attachment';
+    return new NextResponse(bytes, { headers: { 'Content-Type': deliverable.mimeType || 'application/octet-stream', 'Content-Length': String(deliverable.sizeBytes ?? bytes.byteLength), 'Content-Disposition': `${disposition}; filename="${safeDownloadName(deliverable.name)}"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
   } catch {
     return new NextResponse('File unavailable', { status: 404 });
   }

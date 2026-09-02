@@ -45,7 +45,7 @@ export default async function StartupDetailPage({ params }: { params: Promise<{ 
   const canAssign = isProgramRole(session.user.role) || session.user.role === Role.MENTOR || session.user.role === Role.FOUNDER;
   const canTask = hasStartupPermission(session.user.role, 'task:manage', memberRole);
   const canReviewMilestone = hasPermission(session.user.role, 'milestone:review');
-  const canUploadEvidence = hasStartupPermission(session.user.role, 'deliverable:upload', memberRole);
+  const canUploadEvidence = (session.user.role === Role.FOUNDER || session.user.role === Role.PROGRAM_LEAD) && hasStartupPermission(session.user.role, 'deliverable:upload', memberRole);
   const canPayment = hasStartupPermission(session.user.role, 'payment:manage', memberRole);
   const canSupportCreate = hasStartupPermission(session.user.role, 'support:create', memberRole);
   const canSupportManage = hasPermission(session.user.role, 'support:manage');
@@ -86,7 +86,7 @@ export default async function StartupDetailPage({ params }: { params: Promise<{ 
           <div className="mt-4 rounded-xl border p-4"><div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.1em] text-prise-text-secondary"><Target size={14} className="text-prise-primary" />Priority milestones</div><div className="mt-3 grid gap-2 sm:grid-cols-3">{priorityMilestones.map((item) => <a key={item.id} href="#milestones" className="rounded-lg bg-prise-page p-3"><div className="text-[10px] font-semibold uppercase text-prise-primary">Phase {item.phase} · {label(item.priority)}</div><div className="mt-1 text-sm font-semibold leading-5">{item.title}</div></a>)}{priorityMilestones.length === 0 ? <div className="text-sm text-success sm:col-span-3">All selected milestones are complete.</div> : null}</div></div>
         </Section>
 
-        <MilestonePlan startupId={id} milestones={startup.milestones} role={session.user.role} canAssign={canAssign} canReview={canReviewMilestone} canUpload={canUploadEvidence} />
+        <MilestonePlan startupId={id} milestones={startup.milestones} role={session.user.role} currentUserId={session.user.id} canAssign={canAssign} canReview={canReviewMilestone} canUpload={canUploadEvidence} />
 
         <Section title="Tasks" subtitle="Execution commitments tied to the startup or a milestone.">
           {canTask ? <details className="mb-4 rounded-input border border-dashed p-4"><summary className="cursor-pointer text-sm font-semibold text-prise-primary">+ Add task</summary><form action={createTaskAction} className="mt-4 grid gap-3 sm:grid-cols-2"><input type="hidden" name="startupId" value={id} /><input name="title" required placeholder="Task outcome" className={inputClass} /><select name="milestoneId" className={inputClass}><option value="">No milestone</option>{startup.milestones.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select><select name="assigneeId" className={inputClass}><option value="">Assign to me</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name} · {label(person.role)}</option>)}</select><select name="priority" defaultValue={Priority.NORMAL} className={inputClass}>{Object.values(Priority).map((value) => <option key={value}>{value}</option>)}</select><input name="dueDate" type="date" className={inputClass} /><textarea name="description" placeholder="Definition of done" rows={3} className="rounded-input border p-3 sm:col-span-2" /><div className="sm:col-span-2"><SubmitButton>Create task</SubmitButton></div></form></details> : null}

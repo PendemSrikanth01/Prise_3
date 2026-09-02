@@ -58,7 +58,8 @@ export async function processAutomaticNotifications(limit = 50) {
   let failed = 0;
   for (const notification of notifications) {
     const templateKey = TEMPLATE_BY_KIND[notification.kind];
-    if (!templateKey || !enabled.has(templateKey)) continue;
+    const directlyRendered = notification.kind === NotificationKind.SUPPORT_OPPORTUNITY;
+    if (!directlyRendered && (!templateKey || !enabled.has(templateKey))) continue;
     try { await sendQueuedNotification(notification.id); sent += 1; } catch { failed += 1; }
   }
   return { considered: notifications.length, sent, failed };
