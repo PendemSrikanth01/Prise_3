@@ -12,5 +12,5 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!startup?.profilePdfStorageKey) return new NextResponse(null, { status: 404 });
   const bytes = await readPrivateUpload(startup.profilePdfStorageKey);
   const download = new URL(request.url).searchParams.get('download') === '1';
-  return new NextResponse(bytes, { headers: { 'Content-Type': 'application/pdf', 'Content-Length': String(startup.profilePdfSizeBytes ?? bytes.byteLength), 'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${safeDownloadName(startup.profilePdfName || 'startup-profile.pdf')}"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
+  return new NextResponse(bytes, { headers: { 'Content-Type': 'application/pdf', 'Content-Length': String(startup.profilePdfSizeBytes ?? bytes.byteLength), 'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${safeDownloadName(startup.profilePdfName || 'startup-profile.pdf')}"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'SAMEORIGIN', 'Content-Security-Policy': "frame-ancestors 'self'" } });
 }

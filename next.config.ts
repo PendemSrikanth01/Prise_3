@@ -17,6 +17,13 @@ const nextConfig: NextConfig = {
           { key: "X-Accel-Buffering", value: "no" },
         ],
       },
+      {
+        source: "/api/startup-profile/:id",
+        headers: [
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+        ],
+      },
     ];
   },
 };
