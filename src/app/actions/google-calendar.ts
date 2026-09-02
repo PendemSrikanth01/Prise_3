@@ -1,5 +1,6 @@
 'use server';
 
+import { CalendarSyncStatus } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { hasPermission, requireSession } from '@/lib/auth';
 import { revokeGoogleCalendarConnection } from '@/lib/google-calendar';
@@ -13,6 +14,10 @@ export async function disconnectGoogleCalendarAction() {
   await revokeGoogleCalendarConnection(connection);
   await prisma.$transaction([
     prisma.activityLog.create({ data: { actorId: session.user.id, actorRole: session.user.role, entityType: 'GoogleCalendarConnection', entityId: connection.id, action: 'disconnected', summary: `${session.user.name}: disconnected Google Calendar` } }),
+    prisma.session.updateMany({
+      where: { calendarConnectionId: connection.id },
+      data: { calendarConnectionId: null, externalEventId: null, calendarSyncStatus: CalendarSyncStatus.NOT_CONNECTED, calendarSyncError: null },
+    }),
     prisma.googleCalendarConnection.delete({ where: { id: connection.id } }),
   ]);
   revalidatePath('/calendar');
