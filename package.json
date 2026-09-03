@@ -18,7 +18,8 @@
     "incubatee:import": "tsx prisma/import-incubatees.ts",
     "incubatee-assets:import": "tsx prisma/import-incubatee-assets.ts",
     "milestone:cleanup:dry-run": "tsx prisma/dry-run-milestone-cleanup.ts",
-    "account:reset-role-passwords": "tsx prisma/reset-role-passwords.ts"
+    "account:reset-role-passwords": "tsx prisma/reset-role-passwords.ts",
+    "account:cleanup-inactive": "tsx prisma/cleanup-inactive-users.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

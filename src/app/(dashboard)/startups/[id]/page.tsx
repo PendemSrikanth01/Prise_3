@@ -32,7 +32,7 @@ export default async function StartupDetailPage({ params }: { params: Promise<{ 
         reviews: { orderBy: { createdAt: 'desc' }, take: 1, include: { reviewer: { select: { name: true } } } },
       } },
       tasks: { orderBy: [{ status: 'asc' }, { dueDate: 'asc' }], include: { assignee: { select: { name: true } }, createdBy: { select: { name: true } } } },
-      memberships: { orderBy: [{ role: 'asc' }, { createdAt: 'asc' }], include: { person: { select: { id: true, name: true, email: true, isActive: true } } } },
+      memberships: { where: { isActive: true, person: { isActive: true } }, orderBy: [{ role: 'asc' }, { createdAt: 'asc' }], include: { person: { select: { id: true, name: true, email: true, isActive: true } } } },
       supportRequests: { orderBy: { createdAt: 'desc' } },
       paymentInstallments: { orderBy: { dueDate: 'desc' } },
     },

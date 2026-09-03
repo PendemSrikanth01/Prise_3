@@ -17,6 +17,8 @@ import { supportOpportunityTemplate } from '@/lib/notification-templates';
 import { queueTemplatedNotification } from '@/lib/notification-automation';
 import { setMilestoneLaneState } from '@/lib/milestone-state';
 import { canDeleteSupportRequest } from '@/lib/collaboration-policy';
+import { clearInactivePersonData } from '@/lib/person-deactivation';
+import { removePrivateUpload } from '@/lib/uploads';
 
 const APP_URL = () => process.env.APP_URL || 'http://127.0.0.1:3010';
 
@@ -555,7 +557,7 @@ export async function updatePersonAccessAction(formData: FormData) {
   const session = await requirePermission('people:manage');
   const personId = requiredText(formData, 'personId', 64);
   if (personId === session.user.id && formData.get('isActive') !== 'on') throw new Error('You cannot deactivate your own account.');
-  const before = await prisma.person.findUniqueOrThrow({ where: { id: personId }, select: { name: true, email: true, phone: true, role: true, isActive: true } });
+  const before = await prisma.person.findUniqueOrThrow({ where: { id: personId }, select: { id: true, name: true, email: true, phone: true, role: true, isActive: true, profilePhotoKey: true } });
   const name = requiredText(formData, 'name', 160);
   const email = requiredText(formData, 'email', 254).toLowerCase();
   const phone = optionalText(formData, 'phone', 40);
@@ -566,14 +568,21 @@ export async function updatePersonAccessAction(formData: FormData) {
     const otherLeads = await prisma.person.count({ where: { id: { not: personId }, role: Role.PROGRAM_LEAD, isActive: true } });
     if (otherLeads === 0) throw new Error('Create another active Program Lead before changing this account.');
   }
-  await prisma.$transaction(async (tx) => {
+  const removedStorageKeys = await prisma.$transaction(async (tx) => {
+    const storageKeys = isActive ? [] : await clearInactivePersonData(tx, before);
     await tx.person.update({ where: { id: personId }, data: { name, email, phone, role, isActive } });
-    if (!isActive) await tx.authSession.updateMany({ where: { personId, revokedAt: null }, data: { revokedAt: new Date() } });
     await tx.activityLog.create({ data: auditData({ actor: session.user, entityType: 'Person', entityId: personId, action: 'account_updated', summary: `${before.name}: account details and access updated`, meta: { before, after: { name, email, phone, role, isActive } } }) });
+    return storageKeys;
   });
+  await Promise.all(removedStorageKeys.map((storageKey) => removePrivateUpload(storageKey)));
   revalidatePath('/settings');
   revalidatePath('/directory');
   revalidatePath('/audit');
+  revalidatePath('/mentors');
+  revalidatePath('/startups');
+  revalidatePath('/work');
+  revalidatePath('/calendar');
+  revalidatePath('/support');
 }
 
 export async function archivePersonAction(formData: FormData) {

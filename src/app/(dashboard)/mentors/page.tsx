@@ -33,8 +33,8 @@ export default async function MentorsPage({ searchParams }: { searchParams: Prom
 
   const [mentors, submittedMilestones] = await Promise.all([
     prisma.person.findMany({
-      where: { role: Role.MENTOR },
-      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
+      where: { role: Role.MENTOR, isActive: true },
+      orderBy: { name: 'asc' },
       select: {
         id: true,
         name: true,

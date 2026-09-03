@@ -26,8 +26,8 @@ export default async function SettingsPage() {
           select: { id: true, name: true, email: true, phone: true, role: true, isActive: true, lastLoginAt: true, founderOfStartupId: true, startupMemberships: { where: { isActive: true }, orderBy: { createdAt: 'asc' }, select: { startupId: true, role: true } } },
         }),
         prisma.startup.findMany({ where: { NOT: { name: { startsWith: 'Deleted startup ' } } }, orderBy: { sNo: 'asc' }, select: { id: true, name: true } }),
-        prisma.startupAssignment.findMany({ include: { startup: { select: { name: true } }, person: { select: { name: true } } }, orderBy: [{ startup: { name: 'asc' } }, { person: { name: 'asc' } }] }),
-        prisma.investorStartupShare.findMany({ include: { startup: { select: { name: true } }, investor: { select: { name: true, email: true } } }, orderBy: [{ startup: { name: 'asc' } }, { investor: { name: 'asc' } }] }),
+        prisma.startupAssignment.findMany({ where: { person: { isActive: true } }, include: { startup: { select: { name: true } }, person: { select: { name: true } } }, orderBy: [{ startup: { name: 'asc' } }, { person: { name: 'asc' } }] }),
+        prisma.investorStartupShare.findMany({ where: { investor: { isActive: true } }, include: { startup: { select: { name: true } }, investor: { select: { name: true, email: true } } }, orderBy: [{ startup: { name: 'asc' } }, { investor: { name: 'asc' } }] }),
         prisma.notificationTemplate.findMany({ orderBy: { key: 'asc' } }),
       ])
     : [[], [], [], [], []];
