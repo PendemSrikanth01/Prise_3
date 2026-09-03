@@ -84,6 +84,34 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  automation-worker:
+    image: prise3-app
+    restart: unless-stopped
+    command:
+      - node
+      - -e
+      - >-
+        const secret=process.env.AUTOMATION_SECRET;
+        if(!secret){console.error('AUTOMATION_SECRET is required');process.exit(1)}
+        const run=()=>fetch('http://app:3000/api/automations/notifications',{method:'POST',headers:{authorization:'Bearer '+secret}}).then(r=>{if(!r.ok)throw new Error('automation '+r.status);return r.text()}).then(console.log).catch(console.error);
+        run();setInterval(run,60000)
+    environment:
+      AUTOMATION_SECRET: ${AUTOMATION_SECRET:-}
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - prise-internal
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    mem_limit: 128m
+    cpus: 0.20
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
   seed:
     profiles: ["tools"]
     build:
