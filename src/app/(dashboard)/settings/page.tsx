@@ -119,7 +119,7 @@ export default async function SettingsPage() {
             <div className="mt-5 divide-y border-t">{investorShares.map((share) => <form action={removeInvestorShareAction} key={share.id} className="flex flex-wrap items-center gap-3 py-3 text-sm"><input type="hidden" name="shareId" value={share.id} /><div className="min-w-48 flex-1 font-semibold">{share.startup.name}</div><div className="min-w-48 text-prise-text-secondary">{share.investor.name} · {share.investor.email}</div><span className="rounded-pill bg-prise-page px-2.5 py-1 text-xs font-semibold">{share.canViewDocuments ? 'Approved files on' : 'Progress only'}</span><ConfirmButton message="Remove this investor's portfolio access?">Remove</ConfirmButton></form>)}{investorShares.length === 0 ? <div className="py-5 text-sm text-prise-text-secondary">No investor access has been shared.</div> : null}</div>
           </section>
 
-          <AccountManager people={people.map(({ id, name, email, phone, role, isActive, lastLoginAt }) => ({ id, name, email, phone, role, isActive, lastLoginAt }))} currentUserId={session.user.id} />
+          <AccountManager people={people.map(({ id, name, email, phone, role, isActive, lastLoginAt, founderOfStartupId }) => ({ id, name, email, phone, role, isActive, lastLoginAt, founderOfStartupId }))} currentUserId={session.user.id} />
         </>
       ) : (
         <div className="mt-5 rounded-card border border-warning/20 bg-warning-bg p-5 text-sm text-prise-text-secondary">
