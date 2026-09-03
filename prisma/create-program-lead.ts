@@ -4,15 +4,15 @@ import { PrismaClient, Role } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  const name = process.env.PROGRAM_LEAD_NAME?.trim();
-  const email = process.env.PROGRAM_LEAD_EMAIL?.trim().toLowerCase();
-  const password = process.env.PROGRAM_LEAD_PASSWORD;
+  const name = process.env.PROGRAM_LEAD_NAME?.trim() || 'Program Lead';
+  const email = (process.env.PROGRAM_LEAD_EMAIL?.trim() || 'lead@prise.bvcsrb.org').toLowerCase();
+  const password = process.env.PROGRAM_LEAD_PASSWORD || 'Prise@2026';
+  const mustChangePassword = process.env.MUST_CHANGE_PASSWORD === 'true';
 
-  if (!name) throw new Error('Set PROGRAM_LEAD_NAME.');
   if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
     throw new Error('Set PROGRAM_LEAD_EMAIL to a valid email address.');
   }
-  if (!password || password.length < 6) {
+  if (password.length < 6) {
     throw new Error('Set PROGRAM_LEAD_PASSWORD to at least 6 characters.');
   }
 
@@ -24,7 +24,7 @@ async function main() {
       role: Role.PROGRAM_LEAD,
       passwordHash,
       isActive: true,
-      mustChangePassword: true,
+      mustChangePassword,
     },
     create: {
       name,
@@ -32,13 +32,17 @@ async function main() {
       role: Role.PROGRAM_LEAD,
       passwordHash,
       isActive: true,
-      mustChangePassword: true,
+      mustChangePassword,
     },
     select: { id: true, name: true, email: true, role: true, isActive: true },
   });
 
   console.log(`Program Lead ready: ${account.name} <${account.email}>`);
-  console.log('The user must choose a new password after the first login.');
+  if (mustChangePassword) {
+    console.log('The user must choose a new password after the first login.');
+  } else {
+    console.log('Direct test login enabled (mustChangePassword: false).');
+  }
 }
 
 main()

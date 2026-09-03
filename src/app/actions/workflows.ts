@@ -160,7 +160,11 @@ export async function assignMilestonesAction(_previous: ActionFeedback, formData
   const selected = new Set(templateIds);
   const removals = existing.filter((item) => item.status !== MilestoneStatus.NA && item.templateId && !selected.has(item.templateId));
   const removableIds = removals.filter((item) => item.status === MilestoneStatus.NOT_STARTED && item._count.tasks + item._count.deliverables + item._count.reviews === 0).map((item) => item.id);
-  const archivedIds = removals.filter((item) => !removableIds.includes(item.id)).map((item) => item.id);
+  const archivableIds = removals.filter((item) => !removableIds.includes(item.id));
+  // Only program roles may soft-archive milestones that already have activity (tasks/deliverables/reviews).
+  // Founders and mentors cannot silently archive a program-finalized milestone mid-cohort.
+  if (archivableIds.length && !isProgramRole(session.user.role)) throw new Error('Only the program team can remove milestones that already have activity. Contact a program manager.');
+  const archivedIds = archivableIds.map((item) => item.id);
   const existingByTemplate = new Map(existing.map((item) => [item.templateId, item]));
   await prisma.$transaction(async (tx) => {
     if (removableIds.length) await tx.milestone.deleteMany({ where: { id: { in: removableIds } } });

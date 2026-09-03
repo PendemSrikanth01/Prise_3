@@ -99,36 +99,44 @@ export async function loginAction(_: AuthActionState, formData: FormData): Promi
   const keepSignedIn = formData.get('keepSignedIn') === 'on';
   if (!email || !password) return { error: 'Enter your email and password.' };
 
-  const requestHeaders = await headers();
-  const forwarded = requestHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() || 'local';
-  const emailHash = privacyHash(email);
-  const ipHash = privacyHash(forwarded);
-  const windowStart = new Date(Date.now() - 15 * 60 * 1000);
-  const [accountFailures, ipFailures] = await Promise.all([
-    prisma.loginAttempt.count({
-      where: { emailHash, ipHash, successful: false, createdAt: { gte: windowStart } },
-    }),
-    prisma.loginAttempt.count({
-      where: { ipHash, successful: false, createdAt: { gte: windowStart } },
-    }),
-  ]);
-  if (accountFailures >= 5 || ipFailures >= 25) {
-    return { error: 'Too many attempts. Wait 15 minutes and try again.' };
+  try {
+    const requestHeaders = await headers();
+    const forwarded = requestHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() || 'local';
+    const emailHash = privacyHash(email);
+    const ipHash = privacyHash(forwarded);
+    const windowStart = new Date(Date.now() - 15 * 60 * 1000);
+    const [accountFailures, ipFailures] = await Promise.all([
+      prisma.loginAttempt.count({
+        where: { emailHash, ipHash, successful: false, createdAt: { gte: windowStart } },
+      }),
+      prisma.loginAttempt.count({
+        where: { ipHash, successful: false, createdAt: { gte: windowStart } },
+      }),
+    ]);
+    if (accountFailures >= 5 || ipFailures >= 25) {
+      return { error: 'Too many attempts. Wait 15 minutes and try again.' };
+    }
+
+    const person = await prisma.person.findUnique({ where: { email } });
+    const valid = person?.isActive ? await compare(password, person.passwordHash) : await compare(password, await hash('invalid-login-value', 12));
+    await prisma.loginAttempt.create({ data: { emailHash, ipHash, successful: Boolean(valid && person?.isActive) } });
+
+    if (!valid || !person?.isActive) return { error: 'Email or password is incorrect.' };
+
+    await Promise.all([
+      prisma.person.update({ where: { id: person.id }, data: { lastLoginAt: new Date() } }),
+      prisma.authSession.deleteMany({ where: { expiresAt: { lt: new Date() } } }),
+      prisma.loginAttempt.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } } }),
+    ]);
+    await createAuthSession(person.id, requestHeaders.get('user-agent'), keepSignedIn ? 30 * 24 : undefined);
+    redirect(person.mustChangePassword ? '/account/password' : '/');
+  } catch (error) {
+    if (error && typeof error === 'object' && 'digest' in error && typeof (error as { digest?: string }).digest === 'string' && (error as { digest: string }).digest.startsWith('NEXT_REDIRECT')) {
+      throw error;
+    }
+    console.error('Login error:', error);
+    return { error: 'Unable to connect to database. Verify database is running.' };
   }
-
-  const person = await prisma.person.findUnique({ where: { email } });
-  const valid = person?.isActive ? await compare(password, person.passwordHash) : await compare(password, await hash('invalid-login-value', 12));
-  await prisma.loginAttempt.create({ data: { emailHash, ipHash, successful: Boolean(valid && person?.isActive) } });
-
-  if (!valid || !person?.isActive) return { error: 'Email or password is incorrect.' };
-
-  await Promise.all([
-    prisma.person.update({ where: { id: person.id }, data: { lastLoginAt: new Date() } }),
-    prisma.authSession.deleteMany({ where: { expiresAt: { lt: new Date() } } }),
-    prisma.loginAttempt.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } } }),
-  ]);
-  await createAuthSession(person.id, requestHeaders.get('user-agent'), keepSignedIn ? 30 * 24 : undefined);
-  redirect(person.mustChangePassword ? '/account/password' : '/');
 }
 
 export async function logoutAction() {

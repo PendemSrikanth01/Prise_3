@@ -2,9 +2,9 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { CalendarClock, ExternalLink, MapPin } from 'lucide-react';
 import { AssignmentRole, MatchPreferenceSource, MilestoneStatus, Role, StartupStatus } from '@prisma/client';
-import { finalizeMentorMatchAction } from '@/app/actions/matching';
+import { finalizeMentorMatchAction, unfinalizeMentorMatchAction } from '@/app/actions/matching';
 import { PreferencePicker } from '@/components/directory/PreferencePicker';
-import { SubmitButton } from '@/components/ui/FormButtons';
+import { ConfirmButton, SubmitButton } from '@/components/ui/FormButtons';
 import { isProgramRole, requireSession, resolveFounderStartupId } from '@/lib/auth';
 import { roleLabel } from '@/lib/labels';
 import { prisma } from '@/lib/prisma';
@@ -34,7 +34,7 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
     <div><div className="text-xs font-semibold uppercase tracking-[.12em] text-prise-primary">People</div><h1 className="mt-1 text-2xl font-bold tracking-tight">Directory</h1><p className="mt-1.5 text-sm text-prise-text-secondary">Discover the cohort, submit preferences and keep final access controlled by the program team.</p></div>
     <nav className="mt-6 flex gap-1 overflow-x-auto rounded-xl border bg-white p-1" aria-label="Directory views"><Tab href="/directory?view=mentors" active={view === 'mentors'} label="Mentors" count={mentors.length} /><Tab href="/directory?view=incubatees" active={view === 'incubatees'} label="Incubatees" count={startups.length} /><Tab href="/directory?view=program" active={view === 'program'} label="Program team" count={programPeople.length} /></nav>
 
-    {view === 'mentors' ? <div className="mt-6 space-y-6">{session.user.role === Role.FOUNDER ? <section><SectionTitle title="Choose mentors" description="Compare domain, location, experience and mentoring frequency, then arrange your preference order." /><PreferencePicker noun="mentor" initialIds={initialMentorIds} candidates={mentors.map((mentor) => ({ id: mentor.id, title: mentor.name, subtitle: [mentor.designation, mentor.organization].filter(Boolean).join(' · ') || 'Mentor', meta: mentor.professionalDomain || undefined, description: mentor.professionalBio ?? undefined, imageUrl: mentor.profilePhotoKey ? `/api/profile-photo/${mentor.id}` : undefined, chips: mentor.expertiseAreas, stats: [mentor.mentorLocation || 'Location not added', mentor.mentoringFrequency || 'Flexible', mentor.yearsExperience === null ? 'Experience not added' : `${mentor.yearsExperience} years`], profileHref: `/mentors/${mentor.id}` }))} /></section> : <ProfileGrid>{mentors.map((mentor) => <MentorCard key={mentor.id} mentor={mentor} />)}</ProfileGrid>}{isProgramRole(session.user.role) ? <MatchingReport preferences={preferences} assignments={mentorAssignments} /> : null}</div> : null}
+    {view === 'mentors' ? <div className="mt-6 space-y-6">{session.user.role === Role.FOUNDER ? <section><SectionTitle title="Choose mentors" description="Compare domain, location, experience and mentoring frequency, then arrange your preference order." /><PreferencePicker noun="mentor" initialIds={initialMentorIds} candidates={mentors.map((mentor) => ({ id: mentor.id, title: mentor.name, subtitle: [mentor.designation, mentor.organization].filter(Boolean).join(' · ') || 'Mentor', meta: mentor.professionalDomain || undefined, description: mentor.professionalBio ?? undefined, imageUrl: mentor.profilePhotoKey ? `/api/profile-photo/${mentor.id}` : undefined, chips: mentor.expertiseAreas, stats: [mentor.mentorLocation || 'Location not added', mentor.mentoringFrequency || 'Flexible', mentor.yearsExperience === null ? 'Experience not added' : `${mentor.yearsExperience} years`], profileHref: `/mentors/${mentor.id}` }))} /></section> : <ProfileGrid>{mentors.map((mentor) => <MentorCard key={mentor.id} mentor={mentor} />)}</ProfileGrid>}{isProgramRole(session.user.role) ? <><MatchingReport preferences={preferences} assignments={mentorAssignments} /><PreferenceSummary preferences={preferences} assignments={mentorAssignments} /></> : null}</div> : null}
     {view === 'incubatees' ? <div className="mt-6">{session.user.role === Role.MENTOR ? <section><SectionTitle title="Choose incubatees" description="Compare startup context and progress, then arrange your preference order." /><PreferencePicker noun="incubatee" initialIds={initialStartupIds} candidates={startups.map((startup) => { const approved = startup.milestones.filter((item) => item.status === MilestoneStatus.APPROVED).length; const currentPhase = startup.milestones.find((item) => item.status !== MilestoneStatus.APPROVED)?.phase ?? startup.milestones.at(-1)?.phase; const priorities = startup.milestones.filter((item) => item.status !== MilestoneStatus.APPROVED).slice(0, 2).map((item) => item.title); return { id: startup.id, title: startup.name, subtitle: [startup.sector, startup.operationLocation || startup.state].filter(Boolean).join(' · ') || 'Incubatee', meta: currentPhase ? `Currently in Phase ${currentPhase}` : 'Milestone plan pending', description: startup.healthStatus ?? `Led by ${startup.founderName}`, imageUrl: startup.logoStorageKey ? `/api/startup-logo/${startup.id}` : undefined, chips: priorities, stats: [`${approved}/${startup.milestones.length} milestones complete`, startup.founderName], profileHref: profileStartupIds.has(startup.id) ? `/startups/${startup.id}/profile` : undefined }; })} /></section> : <ProfileGrid>{startups.map((startup) => <IncubateeCard key={startup.id} startup={startup} canOpen={isProgramRole(session.user.role)} canViewProfile={profileStartupIds.has(startup.id) || (isProgramRole(session.user.role) && accessibleProfileStartupIds.has(startup.id))} />)}</ProfileGrid>}</div> : null}
     {view === 'program' ? <ProfileGrid className="mt-6">{programPeople.map((person) => <article key={person.id} className="rounded-card border bg-white p-5 shadow-card"><PersonAvatar id={person.id} name={person.name} hasPhoto={Boolean(person.profilePhotoKey)} /><h2 className="mt-4 font-semibold">{person.name}</h2><p className="mt-1 text-xs font-semibold text-prise-primary">{roleLabel(person.role)}</p><p className="mt-2 text-sm text-prise-text-secondary">{[person.designation, person.organization].filter(Boolean).join(' · ') || 'PrISE program delivery'}</p>{person.professionalBio ? <p className="mt-3 line-clamp-3 text-xs leading-5 text-prise-text-secondary">{person.professionalBio}</p> : null}<a href={`mailto:${person.email}`} className="mt-4 block truncate text-xs font-semibold text-prise-primary">{person.email}</a></article>)}</ProfileGrid> : null}
   </div>;
@@ -61,5 +61,87 @@ function MatchingReport({ preferences, assignments }: { preferences: Array<{ id:
   const pairs = new Map<string, { mentorChoice?: (typeof preferences)[number]; incubateeChoice?: (typeof preferences)[number] }>();
   for (const item of preferences) { const key = `${item.startupId}:${item.mentorId}`; const pair = pairs.get(key) ?? {}; if (item.source === MatchPreferenceSource.MENTOR) pair.mentorChoice = item; else pair.incubateeChoice = item; pairs.set(key, pair); }
   const rows = [...pairs.values()].sort((a, b) => Number(Boolean(b.mentorChoice && b.incubateeChoice)) - Number(Boolean(a.mentorChoice && a.incubateeChoice)) || (a.mentorChoice?.rank ?? a.incubateeChoice?.rank ?? 99) - (b.mentorChoice?.rank ?? b.incubateeChoice?.rank ?? 99) || (a.mentorChoice?.createdAt ?? a.incubateeChoice!.createdAt).getTime() - (b.mentorChoice?.createdAt ?? b.incubateeChoice!.createdAt).getTime());
-  return <section className="rounded-card border bg-white shadow-card"><div className="border-b px-5 py-4"><h2 className="font-semibold">Matching report</h2><p className="mt-1 text-sm text-prise-text-secondary">Mutual preferences appear first. Program Lead or Program Team finalizes workspace access.</p></div><div className="divide-y">{rows.map(({ mentorChoice, incubateeChoice }) => { const choice = mentorChoice ?? incubateeChoice!; const finalized = assigned.has(`${choice.startupId}:${choice.mentorId}`); const mutual = Boolean(mentorChoice && incubateeChoice); return <div key={`${choice.startupId}:${choice.mentorId}`} className="grid gap-3 px-5 py-4 text-sm md:grid-cols-[1fr_1fr_auto_auto] md:items-center"><div><div className="font-semibold">{choice.startup.name}</div><div className="text-xs text-prise-text-secondary">Incubatee rank {incubateeChoice?.rank ?? '—'}</div></div><div><div className="font-semibold">{choice.mentor.name}</div><div className="text-xs text-prise-text-secondary">Mentor rank {mentorChoice?.rank ?? '—'}</div></div><span className={`w-fit rounded-pill px-2.5 py-1 text-[11px] font-semibold ${mutual ? 'bg-success-bg text-success' : 'bg-warning-bg text-warning'}`}>{mutual ? 'Mutual match' : 'One-sided'}</span>{finalized ? <span className="text-xs font-semibold text-success">Finalized</span> : <form action={finalizeMentorMatchAction}><input type="hidden" name="startupId" value={choice.startupId} /><input type="hidden" name="mentorId" value={choice.mentorId} /><SubmitButton className="!py-2">Finalize</SubmitButton></form>}</div>; })}{rows.length === 0 ? <div className="p-6 text-sm text-prise-text-secondary">No preferences submitted yet.</div> : null}</div></section>;
+  return <section className="rounded-card border bg-white shadow-card"><div className="border-b px-5 py-4"><h2 className="font-semibold">Matching report</h2><p className="mt-1 text-sm text-prise-text-secondary">Mutual preferences appear first. Program Lead or Program Team finalizes workspace access.</p></div><div className="divide-y">{rows.map(({ mentorChoice, incubateeChoice }) => { const choice = mentorChoice ?? incubateeChoice!; const finalized = assigned.has(`${choice.startupId}:${choice.mentorId}`); const mutual = Boolean(mentorChoice && incubateeChoice); return <div key={`${choice.startupId}:${choice.mentorId}`} className="grid gap-3 px-5 py-4 text-sm md:grid-cols-[1fr_1fr_auto_auto] md:items-center"><div><div className="font-semibold">{choice.startup.name}</div><div className="text-xs text-prise-text-secondary">Incubatee rank {incubateeChoice?.rank ?? '—'}</div></div><div><div className="font-semibold">{choice.mentor.name}</div><div className="text-xs text-prise-text-secondary">Mentor rank {mentorChoice?.rank ?? '—'}</div></div><span className={`w-fit rounded-pill px-2.5 py-1 text-[11px] font-semibold ${mutual ? 'bg-success-bg text-success' : 'bg-warning-bg text-warning'}`}>{mutual ? 'Mutual match' : 'One-sided'}</span>{finalized ? <form action={unfinalizeMentorMatchAction}><input type="hidden" name="startupId" value={choice.startupId} /><input type="hidden" name="mentorId" value={choice.mentorId} /><ConfirmButton message={`Revert ${choice.mentor.name} as mentor for ${choice.startup.name}? This removes their workspace access. Preferences are kept — you can re-finalize at any time.`} className="!py-2">Revert</ConfirmButton></form> : <form action={finalizeMentorMatchAction}><input type="hidden" name="startupId" value={choice.startupId} /><input type="hidden" name="mentorId" value={choice.mentorId} /><SubmitButton className={`!py-2${mutual ? '' : ' !bg-warning !shadow-none hover:!bg-amber-600'}`}>{mutual ? 'Finalize' : 'Finalize (one-sided)'}</SubmitButton></form>}</div>; })}{rows.length === 0 ? <div className="p-6 text-sm text-prise-text-secondary">No preferences submitted yet.</div> : null}</div></section>;
 }
+
+function PreferenceSummary({ preferences, assignments }: {
+  preferences: Array<{ id: string; source: MatchPreferenceSource; rank: number; mentorId: string; startupId: string; mentor: { id: string; name: string }; startup: { id: string; name: string } }>;
+  assignments: Array<{ startupId: string; personId: string }>;
+}) {
+  const assigned = new Set(assignments.map((a) => `${a.startupId}:${a.personId}`));
+  const RANK = ['1st', '2nd', '3rd'];
+
+  const byStartup = new Map<string, { startup: { id: string; name: string }; picks: typeof preferences }>();
+  for (const p of preferences) {
+    if (p.source !== MatchPreferenceSource.INCUBATEE) continue;
+    const entry = byStartup.get(p.startupId) ?? { startup: p.startup, picks: [] };
+    entry.picks.push(p);
+    byStartup.set(p.startupId, entry);
+  }
+  for (const entry of byStartup.values()) entry.picks.sort((a, b) => a.rank - b.rank);
+
+  const byMentor = new Map<string, { mentor: { id: string; name: string }; picks: typeof preferences }>();
+  for (const p of preferences) {
+    if (p.source !== MatchPreferenceSource.MENTOR) continue;
+    const entry = byMentor.get(p.mentorId) ?? { mentor: p.mentor, picks: [] };
+    entry.picks.push(p);
+    byMentor.set(p.mentorId, entry);
+  }
+  for (const entry of byMentor.values()) entry.picks.sort((a, b) => a.rank - b.rank);
+
+  const incubateeRows = [...byStartup.values()].sort((a, b) => a.startup.name.localeCompare(b.startup.name));
+  const mentorRows = [...byMentor.values()].sort((a, b) => a.mentor.name.localeCompare(b.mentor.name));
+
+  function PickRow({ rank, name, finalized }: { rank: number; name: string; finalized: boolean }) {
+    return (
+      <div className="flex items-center gap-2.5 text-xs">
+        <span className="w-7 shrink-0 font-semibold text-prise-text-muted">{RANK[rank - 1] ?? `#${rank}`}</span>
+        <span className={`flex-1 truncate ${finalized ? 'font-semibold text-prise-text' : 'text-prise-text-secondary'}`}>{name}</span>
+        {finalized ? <span className="rounded-pill bg-success-bg px-2 py-0.5 text-[10px] font-semibold text-success">Finalized</span> : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-2">
+      <section className="rounded-card border bg-white shadow-card">
+        <div className="border-b px-5 py-4">
+          <h2 className="font-semibold">Incubatee preferences</h2>
+          <p className="mt-1 text-sm text-prise-text-secondary">Each startup&apos;s ranked mentor choices (up to 3).</p>
+        </div>
+        <div className="divide-y">
+          {incubateeRows.length === 0
+            ? <div className="p-6 text-sm text-prise-text-secondary">No incubatee preferences submitted yet.</div>
+            : incubateeRows.map(({ startup, picks }) => (
+              <div key={startup.id} className="px-5 py-3.5">
+                <div className="mb-2 text-sm font-semibold">{startup.name}</div>
+                <div className="space-y-1.5">
+                  {picks.map((p) => <PickRow key={p.id} rank={p.rank} name={p.mentor.name} finalized={assigned.has(`${p.startupId}:${p.mentorId}`)} />)}
+                </div>
+              </div>
+            ))}
+        </div>
+      </section>
+
+      <section className="rounded-card border bg-white shadow-card">
+        <div className="border-b px-5 py-4">
+          <h2 className="font-semibold">Mentor preferences</h2>
+          <p className="mt-1 text-sm text-prise-text-secondary">Each mentor&apos;s ranked incubatee choices (up to 3).</p>
+        </div>
+        <div className="divide-y">
+          {mentorRows.length === 0
+            ? <div className="p-6 text-sm text-prise-text-secondary">No mentor preferences submitted yet.</div>
+            : mentorRows.map(({ mentor, picks }) => (
+              <div key={mentor.id} className="px-5 py-3.5">
+                <div className="mb-2 text-sm font-semibold">{mentor.name}</div>
+                <div className="space-y-1.5">
+                  {picks.map((p) => <PickRow key={p.id} rank={p.rank} name={p.startup.name} finalized={assigned.has(`${p.startupId}:${p.mentorId}`)} />)}
+                </div>
+              </div>
+            ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
