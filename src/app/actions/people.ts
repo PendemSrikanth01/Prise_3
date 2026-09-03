@@ -1,6 +1,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { randomBytes } from 'node:crypto';
+import { hash } from 'bcryptjs';
 import { Role } from '@prisma/client';
 import { requirePermission } from '@/lib/auth';
 import { requiredText } from '@/lib/form';
@@ -13,6 +15,7 @@ export async function deletePersonPermanentlyAction(formData: FormData) {
   if (formData.get('confirmPermanent') !== 'DELETE') throw new Error('Confirm permanent deletion before continuing.');
   if (personId === session.user.id) throw new Error('You cannot delete your own account.');
   const deleteLinkedStartup = formData.get('deleteLinkedStartup') === 'on';
+  const disabledPasswordHash = await hash(randomBytes(32).toString('base64url'), 12);
 
   const storageKeys = await prisma.$transaction(async (tx) => {
     const person = await tx.person.findUniqueOrThrow({
@@ -24,13 +27,7 @@ export async function deletePersonPermanentlyAction(formData: FormData) {
       if (otherLeads === 0) throw new Error('The final active Program Lead cannot be deleted.');
     }
 
-    const [assignments, memberships, investorShares, mentorPreferences, submittedPreferences, availability, personalFiles, participantSessions] = await Promise.all([
-      tx.startupAssignment.findMany({ where: { personId }, select: { id: true } }),
-      tx.startupMembership.findMany({ where: { personId }, select: { id: true } }),
-      tx.investorStartupShare.findMany({ where: { investorId: personId }, select: { id: true } }),
-      tx.mentorMatchPreference.findMany({ where: { mentorId: personId }, select: { id: true } }),
-      tx.mentorMatchPreference.findMany({ where: { submittedById: personId }, select: { id: true } }),
-      tx.mentorAvailability.findMany({ where: { mentorId: personId }, select: { id: true } }),
+    const [personalFiles, participantSessions] = await Promise.all([
       Promise.all([
         tx.onboardingDocument.findMany({ where: { uploaderId: personId }, select: { storageKey: true } }),
         tx.deliverable.findMany({ where: { uploaderId: personId }, select: { storageKey: true } }),
@@ -65,8 +62,37 @@ export async function deletePersonPermanentlyAction(formData: FormData) {
       await tx.supportRequest.deleteMany({ where: { startupId: linkedStartupId } });
       await tx.session.deleteMany({ where: { startupId: linkedStartupId } });
       await tx.paymentInstallment.deleteMany({ where: { startupId: linkedStartupId } });
-      await tx.activityLog.deleteMany({ where: { startupId: linkedStartupId } });
-      await tx.startup.delete({ where: { id: linkedStartupId } });
+      await tx.startupAssignment.deleteMany({ where: { startupId: linkedStartupId } });
+      await tx.startupMembership.deleteMany({ where: { startupId: linkedStartupId } });
+      await tx.investorStartupShare.deleteMany({ where: { startupId: linkedStartupId } });
+      await tx.mentorMatchPreference.deleteMany({ where: { startupId: linkedStartupId } });
+      await tx.startup.update({
+        where: { id: linkedStartupId },
+        data: {
+          sNo: null,
+          name: `Deleted startup ${linkedStartupId.slice(-8)}`,
+          founderName: 'Deleted incubatee',
+          founderEmail: null,
+          founderPhone: null,
+          fullAddress: null,
+          operationLocation: null,
+          state: null,
+          sector: null,
+          legalStructure: null,
+          actualFee: null,
+          agreedFee: null,
+          agreedFeeRemarks: null,
+          totalFeePaid: null,
+          documentFolderLink: null,
+          logoStorageKey: null,
+          logoMimeType: null,
+          profilePdfStorageKey: null,
+          profilePdfName: null,
+          profilePdfSizeBytes: null,
+          status: 'WITHDRAWN',
+          healthStatus: null,
+        },
+      });
     } else if (linkedStartupId) {
       await tx.startup.update({ where: { id: linkedStartupId }, data: { founderName: 'Incubatee unassigned', founderEmail: null, founderPhone: null } });
     }
@@ -96,9 +122,43 @@ export async function deletePersonPermanentlyAction(formData: FormData) {
     await tx.session.updateMany({ where: { facilitatorId: personId }, data: { facilitatorId: null } });
     await tx.attendanceRecord.updateMany({ where: { recordedById: personId }, data: { recordedById: null } });
 
-    const relatedEntityIds = [personId, ...assignments, ...memberships, ...investorShares, ...mentorPreferences, ...submittedPreferences, ...availability].map((item) => typeof item === 'string' ? item : item.id);
-    await tx.activityLog.deleteMany({ where: { OR: [{ actorId: personId }, { entityType: 'Person', entityId: personId }, { entityId: { in: relatedEntityIds } }] } });
-    await tx.person.delete({ where: { id: personId } });
+    await tx.startupAssignment.deleteMany({ where: { personId } });
+    await tx.startupMembership.deleteMany({ where: { personId } });
+    await tx.investorStartupShare.deleteMany({ where: { investorId: personId } });
+    await tx.mentorMatchPreference.deleteMany({ where: { OR: [{ mentorId: personId }, { submittedById: personId }] } });
+    await tx.mentorAvailability.deleteMany({ where: { mentorId: personId } });
+    await tx.supportParticipant.deleteMany({ where: { personId } });
+    await tx.googleCalendarConnection.deleteMany({ where: { personId } });
+    await tx.authSession.deleteMany({ where: { personId } });
+    await tx.passwordResetToken.deleteMany({ where: { personId } });
+    await tx.person.update({
+      where: { id: personId },
+      data: {
+        name: 'Deleted user',
+        email: `${personId}@deleted.invalid`,
+        phone: null,
+        isActive: false,
+        mustChangePassword: false,
+        lastLoginAt: null,
+        passwordHash: disabledPasswordHash,
+        organization: null,
+        designation: null,
+        professionalBio: null,
+        professionalDomain: null,
+        mentorLocation: null,
+        mentoringFrequency: null,
+        linkedinUrl: null,
+        expertiseAreas: [],
+        preferredSectors: [],
+        languages: [],
+        yearsExperience: null,
+        profilePhotoKey: null,
+        profilePhotoMimeType: null,
+        maxStartupCapacity: 0,
+        acceptingMentees: false,
+        founderOfStartupId: null,
+      },
+    });
     return [...keys];
   });
 

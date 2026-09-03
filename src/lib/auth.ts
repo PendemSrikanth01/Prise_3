@@ -144,16 +144,18 @@ export async function requirePermission(permission: Permission) {
 }
 
 export function accessibleStartupWhere(user: AuthUser): Prisma.StartupWhereInput {
+  const visibleStartup = { NOT: { name: { startsWith: 'Deleted startup ' } } } satisfies Prisma.StartupWhereInput;
   const globalViewRoles = new Set<Role>([Role.PROGRAM_LEAD, Role.PROGRAM_TEAM]);
-  if (globalViewRoles.has(user.role)) return {};
-  if (user.role === Role.INVESTOR) return { investorShares: { some: { investorId: user.id } } };
+  if (globalViewRoles.has(user.role)) return visibleStartup;
+  if (user.role === Role.INVESTOR) return { ...visibleStartup, investorShares: { some: { investorId: user.id } } };
   if (user.role === Role.FOUNDER) return {
+    ...visibleStartup,
     OR: [
       { id: user.founderOfStartupId ?? '__none__' },
       { memberships: { some: { personId: user.id, isActive: true } } },
     ],
   };
-  return { assignments: { some: { personId: user.id } } };
+  return { ...visibleStartup, assignments: { some: { personId: user.id } } };
 }
 
 export async function startupMemberRole(startupId: string, personId: string) {
