@@ -99,6 +99,120 @@ export async function unfinalizeMentorMatchAction(formData: FormData) {
   revalidatePath('/audit');
 }
 
+export async function saveStartupMentorAllocationsAction(_previous: MatchingFeedback, formData: FormData): Promise<MatchingFeedback> {
+  try {
+    const session = await requireSession();
+    if (!isProgramRole(session.user.role)) throw new Error('Forbidden');
+    const startupId = requiredText(formData, 'startupId', 64);
+    const mentorIds = Array.from(new Set(formData.getAll('mentorId').filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))));
+
+    const startup = await prisma.startup.findUniqueOrThrow({ where: { id: startupId }, select: { name: true } });
+    const verifiedMentors = mentorIds.length > 0
+      ? await prisma.person.findMany({ where: { id: { in: mentorIds }, role: Role.MENTOR, isActive: true }, select: { id: true, name: true } })
+      : [];
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.startupAssignment.findMany({
+        where: { startupId, role: AssignmentRole.MENTOR },
+        select: { id: true, personId: true },
+      });
+      const existingPersonIds = new Set(existing.map((e) => e.personId));
+      const targetPersonIds = new Set(verifiedMentors.map((m) => m.id));
+
+      const toRemove = existing.filter((e) => !targetPersonIds.has(e.personId));
+      if (toRemove.length > 0) {
+        await tx.startupAssignment.deleteMany({
+          where: { id: { in: toRemove.map((e) => e.id) } },
+        });
+      }
+
+      const toAdd = verifiedMentors.filter((m) => !existingPersonIds.has(m.id));
+      if (toAdd.length > 0) {
+        await tx.startupAssignment.createMany({
+          data: toAdd.map((m) => ({ startupId, personId: m.id, role: AssignmentRole.MENTOR })),
+        });
+      }
+
+      const mentorNames = verifiedMentors.map((m) => m.name).join(', ') || 'none';
+      await tx.activityLog.create({
+        data: auditData({
+          actor: session.user,
+          startupId,
+          entityType: 'StartupAssignment',
+          entityId: startupId,
+          action: 'mentor_allocations_saved',
+          summary: `Updated mentor allocations for ${startup.name}: ${mentorNames} (${verifiedMentors.length} assigned)`,
+        }),
+      });
+    });
+
+    revalidatePath('/directory');
+    revalidatePath('/settings');
+    revalidatePath('/startups');
+    revalidatePath(`/startups/${startupId}`);
+    revalidatePath('/audit');
+    return { status: 'success', message: `Saved ${verifiedMentors.length} mentor(s) for ${startup.name}.` };
+  } catch (error) {
+    return { status: 'error', message: message(error) };
+  }
+}
+
+export async function saveMentorStartupAllocationsAction(_previous: MatchingFeedback, formData: FormData): Promise<MatchingFeedback> {
+  try {
+    const session = await requireSession();
+    if (!isProgramRole(session.user.role)) throw new Error('Forbidden');
+    const mentorId = requiredText(formData, 'mentorId', 64);
+    const startupIds = Array.from(new Set(formData.getAll('startupId').filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))));
+
+    const mentor = await prisma.person.findFirstOrThrow({ where: { id: mentorId, role: Role.MENTOR, isActive: true }, select: { name: true } });
+    const verifiedStartups = startupIds.length > 0
+      ? await prisma.startup.findMany({ where: { id: { in: startupIds } }, select: { id: true, name: true } })
+      : [];
+
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.startupAssignment.findMany({
+        where: { personId: mentorId, role: AssignmentRole.MENTOR },
+        select: { id: true, startupId: true },
+      });
+      const existingStartupIds = new Set(existing.map((e) => e.startupId));
+      const targetStartupIds = new Set(verifiedStartups.map((s) => s.id));
+
+      const toRemove = existing.filter((e) => !targetStartupIds.has(e.startupId));
+      if (toRemove.length > 0) {
+        await tx.startupAssignment.deleteMany({
+          where: { id: { in: toRemove.map((e) => e.id) } },
+        });
+      }
+
+      const toAdd = verifiedStartups.filter((s) => !existingStartupIds.has(s.id));
+      if (toAdd.length > 0) {
+        await tx.startupAssignment.createMany({
+          data: toAdd.map((s) => ({ startupId: s.id, personId: mentorId, role: AssignmentRole.MENTOR })),
+        });
+      }
+
+      const startupNames = verifiedStartups.map((s) => s.name).join(', ') || 'none';
+      await tx.activityLog.create({
+        data: auditData({
+          actor: session.user,
+          entityType: 'StartupAssignment',
+          entityId: mentorId,
+          action: 'mentor_allocations_saved',
+          summary: `Updated startup assignments for ${mentor.name}: ${startupNames} (${verifiedStartups.length} assigned)`,
+        }),
+      });
+    });
+
+    revalidatePath('/directory');
+    revalidatePath('/settings');
+    revalidatePath('/startups');
+    revalidatePath('/audit');
+    return { status: 'success', message: `Saved ${verifiedStartups.length} incubatee(s) for ${mentor.name}.` };
+  } catch (error) {
+    return { status: 'error', message: message(error) };
+  }
+}
+
 export async function saveDeliveryAssignmentAction(formData: FormData) {
   const session = await requireSession();
   if (!hasPermission(session.user.role, 'people:manage') && session.user.role !== Role.PROGRAM_TEAM) throw new Error('Forbidden');
@@ -117,3 +231,4 @@ export async function saveDeliveryAssignmentAction(formData: FormData) {
   revalidatePath(`/startups/${startupId}`);
   revalidatePath('/audit');
 }
+

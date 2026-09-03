@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import { CalendarClock, ExternalLink, MapPin } from 'lucide-react';
+import { CalendarClock, ExternalLink, MapPin, Sparkles } from 'lucide-react';
 import { AssignmentRole, MatchPreferenceSource, MilestoneStatus, Role, StartupStatus } from '@prisma/client';
 import { finalizeMentorMatchAction, unfinalizeMentorMatchAction } from '@/app/actions/matching';
 import { PreferencePicker } from '@/components/directory/PreferencePicker';
@@ -31,7 +31,23 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
   const profileStartupIds = new Set(startups.filter(({ id, profilePdfStorageKey }) => Boolean(profilePdfStorageKey) && accessibleProfileStartupIds.has(id)).map(({ id }) => id));
 
   return <div className="mx-auto w-full max-w-[1350px] p-4 sm:p-6 lg:p-8">
-    <div><div className="text-xs font-semibold uppercase tracking-[.12em] text-prise-primary">People</div><h1 className="mt-1 text-2xl font-bold tracking-tight">Directory</h1><p className="mt-1.5 text-sm text-prise-text-secondary">Discover the cohort, submit preferences and keep final access controlled by the program team.</p></div>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-[.12em] text-prise-primary">People</div>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight">Directory</h1>
+        <p className="mt-1.5 text-sm text-prise-text-secondary">Discover the cohort, submit preferences and keep final access controlled by the program team.</p>
+      </div>
+      {isProgramRole(session.user.role) && (
+        <Link
+          href="/mapping"
+          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-button bg-prise-primary px-4 text-xs font-semibold text-white shadow transition hover:bg-prise-primary-hover"
+        >
+          <Sparkles size={14} />
+          <span>Mentor Mapping & Freezing →</span>
+        </Link>
+      )}
+    </div>
+
     <nav className="mt-6 flex gap-1 overflow-x-auto rounded-xl border bg-white p-1" aria-label="Directory views"><Tab href="/directory?view=mentors" active={view === 'mentors'} label="Mentors" count={mentors.length} /><Tab href="/directory?view=incubatees" active={view === 'incubatees'} label="Incubatees" count={startups.length} /><Tab href="/directory?view=program" active={view === 'program'} label="Program team" count={programPeople.length} /></nav>
 
     {view === 'mentors' ? <div className="mt-6 space-y-6">{session.user.role === Role.FOUNDER ? <section><SectionTitle title="Choose mentors" description="Compare domain, location, experience and mentoring frequency, then arrange your preference order." /><PreferencePicker noun="mentor" initialIds={initialMentorIds} candidates={mentors.map((mentor) => ({ id: mentor.id, title: mentor.name, subtitle: [mentor.designation, mentor.organization].filter(Boolean).join(' · ') || 'Mentor', meta: mentor.professionalDomain || undefined, description: mentor.professionalBio ?? undefined, imageUrl: mentor.profilePhotoKey ? `/api/profile-photo/${mentor.id}` : undefined, chips: mentor.expertiseAreas, stats: [mentor.mentorLocation || 'Location not added', mentor.mentoringFrequency || 'Flexible', mentor.yearsExperience === null ? 'Experience not added' : `${mentor.yearsExperience} years`], profileHref: `/mentors/${mentor.id}` }))} /></section> : <ProfileGrid>{mentors.map((mentor) => <MentorCard key={mentor.id} mentor={mentor} />)}</ProfileGrid>}{isProgramRole(session.user.role) ? <><MatchingReport preferences={preferences} assignments={mentorAssignments} /><PreferenceSummary preferences={preferences} assignments={mentorAssignments} /></> : null}</div> : null}

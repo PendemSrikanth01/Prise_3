@@ -25,6 +25,7 @@ const PROGRAM_NAV: NavSection[] = [
   ] },
   { label: 'People & program', items: [
     { href: '/directory', label: 'Directory', icon: Users },
+    { href: '/mapping', label: 'Mentor mapping', icon: UserRoundCog },
     { href: '/mentors', label: 'Mentors', icon: GraduationCap },
     { href: '/program', label: 'Program', icon: CalendarRange },
     { href: '/insights', label: 'Dashboard', icon: BarChart3 },
