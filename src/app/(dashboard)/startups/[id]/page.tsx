@@ -25,7 +25,7 @@ export default async function StartupDetailPage({ params }: { params: Promise<{ 
   const startup = await prisma.startup.findFirst({
     where: { id, ...accessibleStartupWhere(session.user) },
     include: {
-      milestones: { orderBy: [{ phase: 'asc' }, { dueDate: 'asc' }], include: {
+      milestones: { where: { status: { not: MilestoneStatus.NA } }, orderBy: [{ phase: 'asc' }, { dueDate: 'asc' }], include: {
         template: { select: { phaseName: true } },
         stakeholderStatuses: { include: { updatedBy: { select: { name: true } } } },
         deliverables: { where: { status: { not: DeliverableStatus.ARCHIVED } }, orderBy: { createdAt: 'desc' }, include: { uploader: { select: { name: true } }, reviewer: { select: { name: true } } } },

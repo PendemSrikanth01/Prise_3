@@ -158,14 +158,18 @@ export async function assignMilestonesAction(_previous: ActionFeedback, formData
   ]);
   if (templates.length !== templateIds.length) throw new Error('One or more milestone templates are not assignable.');
   const selected = new Set(templateIds);
-  const removals = existing.filter((item) => item.templateId && !selected.has(item.templateId));
-  if (removals.some((item) => item.status !== MilestoneStatus.NOT_STARTED || item._count.tasks + item._count.deliverables + item._count.reviews > 0)) throw new Error('A milestone with activity cannot be removed from the plan.');
+  const removals = existing.filter((item) => item.status !== MilestoneStatus.NA && item.templateId && !selected.has(item.templateId));
+  const removableIds = removals.filter((item) => item.status === MilestoneStatus.NOT_STARTED && item._count.tasks + item._count.deliverables + item._count.reviews === 0).map((item) => item.id);
+  const archivedIds = removals.filter((item) => !removableIds.includes(item.id)).map((item) => item.id);
+  const existingByTemplate = new Map(existing.map((item) => [item.templateId, item]));
   await prisma.$transaction(async (tx) => {
-    if (removals.length) await tx.milestone.deleteMany({ where: { id: { in: removals.map((item) => item.id) } } });
+    if (removableIds.length) await tx.milestone.deleteMany({ where: { id: { in: removableIds } } });
+    if (archivedIds.length) await tx.milestone.updateMany({ where: { id: { in: archivedIds } }, data: { status: MilestoneStatus.NA, isFinalized: false } });
     for (const template of templates) {
+      const reactivating = existingByTemplate.get(template.id)?.status === MilestoneStatus.NA;
       await tx.milestone.upsert({
         where: { startupId_templateId: { startupId, templateId: template.id } },
-        update: { phase: template.phase, title: template.title, keyActivity: template.keyActivity, deliverable: template.deliverable, effort: template.effort, ...milestoneFinalizationPatch(isProgramRole(session.user.role)) },
+        update: { phase: template.phase, title: template.title, keyActivity: template.keyActivity, deliverable: template.deliverable, effort: template.effort, ...(reactivating ? { status: MilestoneStatus.NOT_STARTED, submittedAt: null, approvedAt: null } : {}), ...milestoneFinalizationPatch(isProgramRole(session.user.role)) },
         create: { startupId, templateId: template.id, phase: template.phase, title: template.title, keyActivity: template.keyActivity, deliverable: template.deliverable, effort: template.effort, isFinalized: isProgramRole(session.user.role) },
       });
     }

@@ -14,7 +14,7 @@ export async function FounderDashboard({ user }: { user: FounderUser }) {
   const [startup, recentSubmissions, submittedThisWeek, awaitingMentor, awaitingProgram, revisions] = await Promise.all([prisma.startup.findUnique({
     where: { id: startupId },
     include: {
-      milestones: { include: { _count: { select: { deliverables: true } } }, orderBy: [{ phase: 'asc' }, { dueDate: 'asc' }] },
+      milestones: { where: { status: { not: MilestoneStatus.NA } }, include: { _count: { select: { deliverables: true } } }, orderBy: [{ phase: 'asc' }, { dueDate: 'asc' }] },
       tasks: { where: { status: { not: TaskStatus.DONE } }, orderBy: [{ dueDate: 'asc' }, { priority: 'asc' }], take: 5 },
       supportRequests: { where: { status: { in: [SupportRequestStatus.OPEN, SupportRequestStatus.ASSIGNED, SupportRequestStatus.IN_PROGRESS] } }, orderBy: { createdAt: 'desc' }, take: 3 },
       paymentInstallments: { where: { status: { in: [PaymentStatus.PENDING, PaymentStatus.OVERDUE] } }, orderBy: { dueDate: 'asc' }, take: 1 },

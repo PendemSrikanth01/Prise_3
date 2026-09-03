@@ -56,7 +56,7 @@ export default async function MentorsPage({ searchParams }: { searchParams: Prom
                 name: true,
                 status: true,
                 healthStatus: true,
-                milestones: { select: { status: true } },
+                milestones: { where: { status: { not: MilestoneStatus.NA } }, select: { status: true } },
               },
             },
           },

@@ -14,6 +14,7 @@ export async function MentorDashboard({ user }: { user: MentorUser }) {
       id: true,
       name: true,
       milestones: {
+        where: { status: { not: MilestoneStatus.NA } },
         orderBy: [{ phase: 'asc' }, { createdAt: 'asc' }],
         select: { id: true, title: true, status: true, dueDate: true },
       },
