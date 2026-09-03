@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { NotificationKind, NotificationStatus, NotificationTemplateKey } from '@prisma/client';
-import { sendQueuedNotification } from '@/lib/email';
+import { processScheduledEmailMessages, sendQueuedNotification } from '@/lib/email';
 import { renderNotificationTemplate, type TemplateVariables } from '@/lib/notification-templates';
 import { prisma } from '@/lib/prisma';
 
@@ -62,5 +62,6 @@ export async function processAutomaticNotifications(limit = 50) {
     if (!directlyRendered && (!templateKey || !enabled.has(templateKey))) continue;
     try { await sendQueuedNotification(notification.id); sent += 1; } catch { failed += 1; }
   }
-  return { considered: notifications.length, sent, failed };
+  const custom = await processScheduledEmailMessages(limit);
+  return { considered: notifications.length, sent, failed, custom };
 }

@@ -317,6 +317,7 @@ model Person {
   onboardingUploads         OnboardingDocument[]         @relation("OnboardingUploader")
   facilitatedSessions       Session[]                    @relation("SessionFacilitator")
   notifications             Notification[]               @relation("NotificationRecipient")
+  createdEmailMessages      EmailMessage[]                @relation("EmailMessageCreator")
   ownedProgramActions       ProgramAction[]              @relation("ProgramActionOwner")
   createdProgramActions     ProgramAction[]              @relation("ProgramActionCreator")
   approvedProgramActions    ProgramAction[]              @relation("ProgramActionApprover")
@@ -1021,6 +1022,36 @@ model Notification {
   @@index([status, scheduledFor])
   @@index([recipientId, createdAt])
   @@index([relatedEntityType, relatedEntityId])
+}
+
+model EmailMessage {
+  id                   String             @id @default(cuid())
+  createdById          String?
+  fromEmail            String
+  replyTo              String?
+  toEmails             String[]           @default([])
+  ccEmails             String[]           @default([])
+  bccEmails            String[]           @default([])
+  subject              String
+  htmlBody             String
+  textBody             String
+  attachmentStorageKey String?
+  attachmentName       String?
+  attachmentMimeType   String?
+  attachmentSizeBytes  Int?
+  status               NotificationStatus @default(PENDING)
+  scheduledFor         DateTime            @default(now())
+  sentAt               DateTime?
+  attempts             Int                 @default(0)
+  providerMessageId    String?
+  lastError            String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  createdBy Person? @relation("EmailMessageCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([status, scheduledFor])
+  @@index([createdById, createdAt])
 }
 
 model NotificationTemplate {
