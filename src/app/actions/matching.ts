@@ -3,7 +3,7 @@
 import { AssignmentRole, MatchPreferenceSource, Role, StartupStatus } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { auditData } from '@/lib/audit';
-import { hasPermission, requireSession, resolveFounderStartupId } from '@/lib/auth';
+import { hasPermission, isProgramRole, requireSession, resolveFounderStartupId } from '@/lib/auth';
 import { optionalText, requiredText } from '@/lib/form';
 import { prisma } from '@/lib/prisma';
 import { normalizeMatchingPreferenceIds } from '@/lib/matching';
@@ -70,6 +70,27 @@ export async function finalizeMentorMatchAction(formData: FormData) {
       create: { startupId, personId: mentorId, role: AssignmentRole.MENTOR },
     });
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'StartupAssignment', entityId: assignment.id, action: 'mentor_match_finalized', summary: `Finalized ${mentor.name} as mentor for ${startup.name}` }) });
+  });
+  revalidatePath('/settings');
+  revalidatePath('/directory');
+  revalidatePath('/startups');
+  revalidatePath(`/startups/${startupId}`);
+  revalidatePath('/audit');
+}
+
+export async function unfinalizeMentorMatchAction(formData: FormData) {
+  const session = await requireSession();
+  if (!isProgramRole(session.user.role)) throw new Error('Forbidden');
+  const startupId = requiredText(formData, 'startupId', 64);
+  const mentorId = requiredText(formData, 'mentorId', 64);
+  const assignment = await prisma.startupAssignment.findFirst({
+    where: { startupId, personId: mentorId, role: AssignmentRole.MENTOR },
+    include: { person: { select: { name: true } }, startup: { select: { name: true } } },
+  });
+  if (!assignment) throw new Error('No finalized assignment found for this pair.');
+  await prisma.$transaction(async (tx) => {
+    await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'StartupAssignment', entityId: assignment.id, action: 'mentor_match_reverted', summary: `Reverted ${assignment.person.name} as mentor for ${assignment.startup.name}` }) });
+    await tx.startupAssignment.delete({ where: { id: assignment.id } });
   });
   revalidatePath('/settings');
   revalidatePath('/directory');

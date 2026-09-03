@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { AuthPanel } from '@/components/auth/AuthPanel';
-import { BvcsrbLogo } from '@/components/brand/BrandIdentity';
+import { BrandLockup } from '@/components/brand/BrandIdentity';
 import { getSession } from '@/lib/auth';
 import styles from './login.module.css';
 
@@ -14,13 +14,12 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     <main className={styles.shell}>
       <section className={styles.story} aria-label="PrISE journey">
         <div className={styles.storyShade} />
-        <div className={styles.wordmark} aria-label="PrISE 3.0">PrISE 3.0</div>
         <p className={styles.storyCaption}>Every meaningful journey begins with a clear next step.</p>
       </section>
 
       <section className={styles.access}>
         <div className={styles.accessInner}>
-          <BvcsrbLogo priority className={styles.organisationLogo} />
+          <BrandLockup variant="login" priority className={styles.organisationLogo} />
           <AuthPanel notice={passwordStatus === 'reset' ? 'Password updated. You can now sign in securely.' : undefined} />
           <footer className={styles.footer}>
             <span>PrISE 3.0 Tracker</span>

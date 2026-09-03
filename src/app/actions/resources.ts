@@ -67,6 +67,30 @@ export async function createResourceAction(_: ResourceActionState, formData: For
   }
 }
 
+export async function updateResourceAction(_: ResourceActionState, formData: FormData): Promise<ResourceActionState> {
+  try {
+    const session = await requireSession();
+    if (!mayPublish(session.user.role)) return { error: 'Only mentors and the program team can edit resources.' };
+    const id = requiredText(formData, 'resourceId', 64);
+    const resource = await prisma.resource.findFirstOrThrow({ where: { id, isArchived: false }, select: { id: true, title: true, uploaderId: true } });
+    // Only the original uploader or a program-role user may update metadata.
+    if (!isProgramRole(session.user.role) && resource.uploaderId !== session.user.id) return { error: 'You can only edit resources you published.' };
+    const title = requiredText(formData, 'title', 180);
+    const externalUrl = safeExternalUrl(optionalText(formData, 'externalUrl', 1200));
+    const phaseRaw = optionalText(formData, 'phase', 2);
+    const phase = phaseRaw ? Number(phaseRaw) : null;
+    if (phase !== null && (!Number.isInteger(phase) || phase < 1 || phase > 8)) return { error: 'Phase must be between 1 and 8.' };
+    await prisma.$transaction(async (tx) => {
+      await tx.resource.update({ where: { id }, data: { title, description: optionalText(formData, 'description', 800), category: optionalText(formData, 'category', 80), phase, externalUrl } });
+      await tx.activityLog.create({ data: auditData({ actor: session.user, entityType: 'Resource', entityId: id, action: 'updated', summary: `Updated resource: ${title}` }) });
+    });
+    revalidatePath('/resources');
+    return { success: `${title} has been updated.` };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Resource could not be updated.' };
+  }
+}
+
 export async function archiveResourceAction(formData: FormData) {
   const session = await requireSession();
   if (!isProgramRole(session.user.role)) throw new Error('Only the program team can archive resources.');
