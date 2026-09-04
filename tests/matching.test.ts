@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { MAX_MATCHING_PREFERENCES, normalizeMatchingPreferenceIds } from '../src/lib/matching';
+import { assertAllocationCandidates, MAX_MATCHING_PREFERENCES, normalizeAllocationIds, normalizeMatchingPreferenceIds } from '../src/lib/matching';
+
+test('allocations normalize IDs and allow clearing assignments', () => {
+  assert.deepEqual(normalizeAllocationIds([' a ', 'a', '', 'b']), ['a', 'b']);
+  assert.deepEqual(normalizeAllocationIds([]), []);
+  assert.doesNotThrow(() => assertAllocationCandidates([], []));
+});
+
+test('unavailable candidates reject the entire allocation request', () => {
+  assert.throws(() => assertAllocationCandidates(['a', 'inactive'], [{ id: 'a' }]), /No assignments were changed/);
+  assert.doesNotThrow(() => assertAllocationCandidates(['a'], [{ id: 'a' }]));
+});
 
 test('matching preferences remove blanks and duplicates while preserving rank order', () => {
   assert.deepEqual(normalizeMatchingPreferenceIds(['a', 'b', 'a', '']), ['a', 'b']);

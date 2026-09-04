@@ -38,6 +38,9 @@ export async function composeEmailAction(_: EmailWorkspaceState, formData: FormD
     const subject = requiredText(formData, 'subject', 240);
     const body = requiredText(formData, 'body', 10_000);
     const requestedSchedule = optionalDateTime(formData, 'scheduledFor');
+    if (requestedSchedule && requestedSchedule > new Date() && !process.env.AUTOMATION_SECRET) {
+      throw new Error('Scheduling is not configured yet. Send now, or ask the program lead to enable the notification worker.');
+    }
     const scheduledFor = requestedSchedule && requestedSchedule > new Date() ? requestedSchedule : new Date();
     const file = formData.get('attachment');
     const hasFile = file instanceof File && file.size > 0;

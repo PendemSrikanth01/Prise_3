@@ -298,11 +298,14 @@ function StartupMappingCard({
   const [additionalMentorId, setAdditionalMentorId] = useState('');
   const [extraMentorIds, setExtraMentorIds] = useState<string[]>([]);
 
-  useEffect(() => {
+  const assignmentVersion = initiallyAssignedIds.join(',');
+  const [savedVersion, setSavedVersion] = useState(assignmentVersion);
+  if (savedVersion !== assignmentVersion) {
+    setSavedVersion(assignmentVersion);
     setSelectedMentorIds(new Set(initiallyAssignedIds));
-  }, [initiallyAssignedIds]);
+  }
 
-  const [state, action, isPending] = useActionState(saveStartupMentorAllocationsAction, initialState);
+  const [state, action] = useActionState(saveStartupMentorAllocationsAction, initialState);
   const { notify } = useToast();
 
   useEffect(() => {
@@ -579,7 +582,7 @@ function StartupMappingCard({
               )}
               <SubmitButton className="!py-1.5 !px-4 !text-xs font-semibold">
                 <Check size={14} className="mr-1 inline" />
-                Finalize & Freeze Mentors
+                Save mentor assignments
               </SubmitButton>
             </div>
           </div>
@@ -668,11 +671,14 @@ function MentorMappingCard({
   const [additionalStartupId, setAdditionalStartupId] = useState('');
   const [extraStartupIds, setExtraStartupIds] = useState<string[]>([]);
 
-  useEffect(() => {
+  const assignmentVersion = initiallyAssignedStartupIds.join(',');
+  const [savedVersion, setSavedVersion] = useState(assignmentVersion);
+  if (savedVersion !== assignmentVersion) {
+    setSavedVersion(assignmentVersion);
     setSelectedStartupIds(new Set(initiallyAssignedStartupIds));
-  }, [initiallyAssignedStartupIds]);
+  }
 
-  const [state, action, isPending] = useActionState(saveMentorStartupAllocationsAction, initialState);
+  const [state, action] = useActionState(saveMentorStartupAllocationsAction, initialState);
   const { notify } = useToast();
 
   useEffect(() => {
@@ -923,7 +929,7 @@ function MentorMappingCard({
               )}
               <SubmitButton className="!py-1.5 !px-4 !text-xs font-semibold">
                 <Check size={14} className="mr-1 inline" />
-                Finalize & Freeze Startups
+                Save startup assignments
               </SubmitButton>
             </div>
           </div>

@@ -6,7 +6,7 @@ import { auditData } from '@/lib/audit';
 import { hasPermission, isProgramRole, requireSession, resolveFounderStartupId } from '@/lib/auth';
 import { optionalText, requiredText } from '@/lib/form';
 import { prisma } from '@/lib/prisma';
-import { normalizeMatchingPreferenceIds } from '@/lib/matching';
+import { assertAllocationCandidates, normalizeAllocationIds, normalizeMatchingPreferenceIds } from '@/lib/matching';
 
 export type MatchingFeedback = { status: 'idle' | 'success' | 'error'; message: string };
 
@@ -48,6 +48,7 @@ export async function saveMatchingPreferencesAction(_previous: MatchingFeedback,
     revalidatePath('/directory');
     revalidatePath('/settings');
     revalidatePath('/audit');
+    revalidatePath('/mapping');
     return { status: 'success', message: 'Preferences submitted successfully.' };
   } catch (error) {
     return { status: 'error', message: message(error) };
@@ -73,6 +74,7 @@ export async function finalizeMentorMatchAction(formData: FormData) {
   });
   revalidatePath('/settings');
   revalidatePath('/directory');
+  revalidatePath('/mapping');
   revalidatePath('/startups');
   revalidatePath(`/startups/${startupId}`);
   revalidatePath('/audit');
@@ -94,6 +96,7 @@ export async function unfinalizeMentorMatchAction(formData: FormData) {
   });
   revalidatePath('/settings');
   revalidatePath('/directory');
+  revalidatePath('/mapping');
   revalidatePath('/startups');
   revalidatePath(`/startups/${startupId}`);
   revalidatePath('/audit');
@@ -104,12 +107,14 @@ export async function saveStartupMentorAllocationsAction(_previous: MatchingFeed
     const session = await requireSession();
     if (!isProgramRole(session.user.role)) throw new Error('Forbidden');
     const startupId = requiredText(formData, 'startupId', 64);
-    const mentorIds = Array.from(new Set(formData.getAll('mentorId').filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))));
+    const mentorIds = normalizeAllocationIds(formData.getAll('mentorId'));
 
-    const startup = await prisma.startup.findUniqueOrThrow({ where: { id: startupId }, select: { name: true } });
+    const startup = await prisma.startup.findFirstOrThrow({ where: { id: startupId, status: { in: [StartupStatus.ACTIVE, StartupStatus.NEEDS_ATTENTION] } }, select: { name: true } });
     const verifiedMentors = mentorIds.length > 0
       ? await prisma.person.findMany({ where: { id: { in: mentorIds }, role: Role.MENTOR, isActive: true }, select: { id: true, name: true } })
       : [];
+
+    assertAllocationCandidates(mentorIds, verifiedMentors);
 
     await prisma.$transaction(async (tx) => {
       const existing = await tx.startupAssignment.findMany({
@@ -151,7 +156,8 @@ export async function saveStartupMentorAllocationsAction(_previous: MatchingFeed
     revalidatePath('/startups');
     revalidatePath(`/startups/${startupId}`);
     revalidatePath('/audit');
-    return { status: 'success', message: `Saved ${verifiedMentors.length} mentor(s) for ${startup.name}.` };
+    revalidatePath('/mapping');
+    return { status: 'success', message: `Saved ${verifiedMentors.length} mentor(s) for ${startup.name}. Use Email workspace to notify the participants.` };
   } catch (error) {
     return { status: 'error', message: message(error) };
   }
@@ -162,12 +168,14 @@ export async function saveMentorStartupAllocationsAction(_previous: MatchingFeed
     const session = await requireSession();
     if (!isProgramRole(session.user.role)) throw new Error('Forbidden');
     const mentorId = requiredText(formData, 'mentorId', 64);
-    const startupIds = Array.from(new Set(formData.getAll('startupId').filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))));
+    const startupIds = normalizeAllocationIds(formData.getAll('startupId'));
 
     const mentor = await prisma.person.findFirstOrThrow({ where: { id: mentorId, role: Role.MENTOR, isActive: true }, select: { name: true } });
     const verifiedStartups = startupIds.length > 0
-      ? await prisma.startup.findMany({ where: { id: { in: startupIds } }, select: { id: true, name: true } })
+      ? await prisma.startup.findMany({ where: { id: { in: startupIds }, status: { in: [StartupStatus.ACTIVE, StartupStatus.NEEDS_ATTENTION] } }, select: { id: true, name: true } })
       : [];
+
+    assertAllocationCandidates(startupIds, verifiedStartups);
 
     await prisma.$transaction(async (tx) => {
       const existing = await tx.startupAssignment.findMany({
@@ -207,7 +215,9 @@ export async function saveMentorStartupAllocationsAction(_previous: MatchingFeed
     revalidatePath('/settings');
     revalidatePath('/startups');
     revalidatePath('/audit');
-    return { status: 'success', message: `Saved ${verifiedStartups.length} incubatee(s) for ${mentor.name}.` };
+    revalidatePath('/mapping');
+    revalidatePath('/startups', 'layout');
+    return { status: 'success', message: `Saved ${verifiedStartups.length} incubatee(s) for ${mentor.name}. Use Email workspace to notify the participants.` };
   } catch (error) {
     return { status: 'error', message: message(error) };
   }

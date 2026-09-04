@@ -46,10 +46,17 @@ export async function queueTemplatedNotification(input: {
 }
 
 export async function processAutomaticNotifications(limit = 50) {
-  const templates = await prisma.notificationTemplate.findMany({ where: { isActive: true, autoSend: true }, select: { key: true } });
-  const enabled = new Set(templates.map(({ key }) => key));
+  const templates = await prisma.notificationTemplate.findMany({ select: { key: true, isActive: true, autoSend: true } });
+  const stored = new Map(templates.map((template) => [template.key, template]));
+  // Match the defaults used when rendering templates, including unsaved defaults.
+  const enabledKinds = (Object.entries(TEMPLATE_BY_KIND) as [NotificationKind, NotificationTemplateKey][])
+    .filter(([, key]) => {
+      const template = stored.get(key);
+      return !template || (template.isActive && template.autoSend);
+    }).map(([kind]) => kind);
+  enabledKinds.push(NotificationKind.SUPPORT_OPPORTUNITY);
   const notifications = await prisma.notification.findMany({
-    where: { status: NotificationStatus.PENDING, scheduledFor: { lte: new Date() }, attempts: { lt: 3 } },
+    where: { kind: { in: enabledKinds }, status: NotificationStatus.PENDING, scheduledFor: { lte: new Date() }, attempts: { lt: 3 } },
     orderBy: { scheduledFor: 'asc' },
     take: Math.min(Math.max(limit, 1), 100),
     select: { id: true, kind: true },
@@ -57,9 +64,6 @@ export async function processAutomaticNotifications(limit = 50) {
   let sent = 0;
   let failed = 0;
   for (const notification of notifications) {
-    const templateKey = TEMPLATE_BY_KIND[notification.kind];
-    const directlyRendered = notification.kind === NotificationKind.SUPPORT_OPPORTUNITY;
-    if (!directlyRendered && (!templateKey || !enabled.has(templateKey))) continue;
     try { await sendQueuedNotification(notification.id); sent += 1; } catch { failed += 1; }
   }
   const custom = await processScheduledEmailMessages(limit);
