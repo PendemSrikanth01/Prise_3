@@ -202,6 +202,11 @@ enum NotificationStatus {
   CANCELLED
 }
 
+enum InAppNotificationKind {
+  MENTOR_MAPPING_ADDED
+  MENTOR_MAPPING_REMOVED
+}
+
 enum DeliverableStatus {
   DRAFT
   SUBMITTED
@@ -317,7 +322,8 @@ model Person {
   onboardingUploads         OnboardingDocument[]         @relation("OnboardingUploader")
   facilitatedSessions       Session[]                    @relation("SessionFacilitator")
   notifications             Notification[]               @relation("NotificationRecipient")
-  createdEmailMessages      EmailMessage[]                @relation("EmailMessageCreator")
+  inAppNotifications        InAppNotification[]          @relation("InAppNotificationRecipient")
+  createdEmailMessages      EmailMessage[]               @relation("EmailMessageCreator")
   ownedProgramActions       ProgramAction[]              @relation("ProgramActionOwner")
   createdProgramActions     ProgramAction[]              @relation("ProgramActionCreator")
   approvedProgramActions    ProgramAction[]              @relation("ProgramActionApprover")
@@ -1021,6 +1027,25 @@ model Notification {
 
   @@index([status, scheduledFor])
   @@index([recipientId, createdAt])
+  @@index([relatedEntityType, relatedEntityId])
+}
+
+model InAppNotification {
+  id                String                @id @default(cuid())
+  recipientId       String
+  kind              InAppNotificationKind
+  title             String
+  message           String
+  href              String?
+  relatedEntityType String?
+  relatedEntityId   String?
+  eventKey          String                @unique
+  readAt            DateTime?
+  createdAt         DateTime              @default(now())
+
+  recipient Person @relation("InAppNotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, readAt, createdAt])
   @@index([relatedEntityType, relatedEntityId])
 }
 
