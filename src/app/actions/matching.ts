@@ -2,11 +2,13 @@
 
 import { AssignmentRole, MatchPreferenceSource, Role, StartupStatus } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
+import { randomUUID } from 'node:crypto';
 import { auditData } from '@/lib/audit';
 import { hasPermission, isProgramRole, requireSession, resolveFounderStartupId } from '@/lib/auth';
 import { optionalText, requiredText } from '@/lib/form';
 import { prisma } from '@/lib/prisma';
 import { assertAllocationCandidates, normalizeAllocationIds, normalizeMatchingPreferenceIds } from '@/lib/matching';
+import { mentorMappingNotificationRows } from '@/lib/in-app-notifications';
 
 export type MatchingFeedback = { status: 'idle' | 'success' | 'error'; message: string };
 
@@ -61,15 +63,27 @@ export async function finalizeMentorMatchAction(formData: FormData) {
   const startupId = requiredText(formData, 'startupId', 64);
   const mentorId = requiredText(formData, 'mentorId', 64);
   const [startup, mentor] = await Promise.all([
-    prisma.startup.findUniqueOrThrow({ where: { id: startupId }, select: { name: true } }),
-    prisma.person.findFirstOrThrow({ where: { id: mentorId, role: Role.MENTOR, isActive: true }, select: { name: true } }),
+    prisma.startup.findUniqueOrThrow({ where: { id: startupId }, select: { id: true, name: true, founder: { select: { id: true, name: true, isActive: true } }, memberships: { where: { isActive: true, role: 'OWNER', person: { isActive: true } }, select: { person: { select: { id: true, name: true } } } } } }),
+    prisma.person.findFirstOrThrow({ where: { id: mentorId, role: Role.MENTOR, isActive: true }, select: { id: true, name: true } }),
   ]);
+  const changeId = randomUUID();
   await prisma.$transaction(async (tx) => {
+    const existing = await tx.startupAssignment.findUnique({ where: { startupId_personId_role: { startupId, personId: mentorId, role: AssignmentRole.MENTOR } }, select: { id: true } });
     const assignment = await tx.startupAssignment.upsert({
       where: { startupId_personId_role: { startupId, personId: mentorId, role: AssignmentRole.MENTOR } },
       update: {},
       create: { startupId, personId: mentorId, role: AssignmentRole.MENTOR },
     });
+    if (!existing) {
+      const rows = mentorMappingNotificationRows({
+        changeId,
+        startup,
+        startupRecipients: [startup.founder?.isActive ? startup.founder : null, ...startup.memberships.map(({ person }) => person)].filter((person): person is { id: string; name: string } => Boolean(person)),
+        addedMentors: [mentor],
+        removedMentors: [],
+      });
+      if (rows.length) await tx.inAppNotification.createMany({ data: rows });
+    }
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'StartupAssignment', entityId: assignment.id, action: 'mentor_match_finalized', summary: `Finalized ${mentor.name} as mentor for ${startup.name}` }) });
   });
   revalidatePath('/settings');
@@ -78,6 +92,7 @@ export async function finalizeMentorMatchAction(formData: FormData) {
   revalidatePath('/startups');
   revalidatePath(`/startups/${startupId}`);
   revalidatePath('/audit');
+  revalidatePath('/', 'layout');
 }
 
 export async function unfinalizeMentorMatchAction(formData: FormData) {
@@ -87,12 +102,21 @@ export async function unfinalizeMentorMatchAction(formData: FormData) {
   const mentorId = requiredText(formData, 'mentorId', 64);
   const assignment = await prisma.startupAssignment.findFirst({
     where: { startupId, personId: mentorId, role: AssignmentRole.MENTOR },
-    include: { person: { select: { name: true } }, startup: { select: { name: true } } },
+    include: { person: { select: { id: true, name: true } }, startup: { select: { id: true, name: true, founder: { select: { id: true, name: true, isActive: true } }, memberships: { where: { isActive: true, role: 'OWNER', person: { isActive: true } }, select: { person: { select: { id: true, name: true } } } } } } },
   });
   if (!assignment) throw new Error('No finalized assignment found for this pair.');
+  const changeId = randomUUID();
   await prisma.$transaction(async (tx) => {
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'StartupAssignment', entityId: assignment.id, action: 'mentor_match_reverted', summary: `Reverted ${assignment.person.name} as mentor for ${assignment.startup.name}` }) });
     await tx.startupAssignment.delete({ where: { id: assignment.id } });
+    const rows = mentorMappingNotificationRows({
+      changeId,
+      startup: assignment.startup,
+      startupRecipients: [assignment.startup.founder?.isActive ? assignment.startup.founder : null, ...assignment.startup.memberships.map(({ person }) => person)].filter((person): person is { id: string; name: string } => Boolean(person)),
+      addedMentors: [],
+      removedMentors: [assignment.person],
+    });
+    if (rows.length) await tx.inAppNotification.createMany({ data: rows });
   });
   revalidatePath('/settings');
   revalidatePath('/directory');
@@ -100,6 +124,7 @@ export async function unfinalizeMentorMatchAction(formData: FormData) {
   revalidatePath('/startups');
   revalidatePath(`/startups/${startupId}`);
   revalidatePath('/audit');
+  revalidatePath('/', 'layout');
 }
 
 export async function saveStartupMentorAllocationsAction(_previous: MatchingFeedback, formData: FormData): Promise<MatchingFeedback> {
@@ -109,17 +134,26 @@ export async function saveStartupMentorAllocationsAction(_previous: MatchingFeed
     const startupId = requiredText(formData, 'startupId', 64);
     const mentorIds = normalizeAllocationIds(formData.getAll('mentorId'));
 
-    const startup = await prisma.startup.findFirstOrThrow({ where: { id: startupId, status: { in: [StartupStatus.ACTIVE, StartupStatus.NEEDS_ATTENTION] } }, select: { name: true } });
+    const startup = await prisma.startup.findFirstOrThrow({
+      where: { id: startupId, status: { in: [StartupStatus.ACTIVE, StartupStatus.NEEDS_ATTENTION] } },
+      select: {
+        id: true,
+        name: true,
+        founder: { select: { id: true, name: true, isActive: true } },
+        memberships: { where: { isActive: true, role: 'OWNER', person: { isActive: true } }, select: { person: { select: { id: true, name: true } } } },
+      },
+    });
     const verifiedMentors = mentorIds.length > 0
       ? await prisma.person.findMany({ where: { id: { in: mentorIds }, role: Role.MENTOR, isActive: true }, select: { id: true, name: true } })
       : [];
 
     assertAllocationCandidates(mentorIds, verifiedMentors);
 
+    const changeId = randomUUID();
     await prisma.$transaction(async (tx) => {
       const existing = await tx.startupAssignment.findMany({
         where: { startupId, role: AssignmentRole.MENTOR },
-        select: { id: true, personId: true },
+        select: { id: true, personId: true, person: { select: { id: true, name: true } } },
       });
       const existingPersonIds = new Set(existing.map((e) => e.personId));
       const targetPersonIds = new Set(verifiedMentors.map((m) => m.id));
@@ -137,6 +171,15 @@ export async function saveStartupMentorAllocationsAction(_previous: MatchingFeed
           data: toAdd.map((m) => ({ startupId, personId: m.id, role: AssignmentRole.MENTOR })),
         });
       }
+
+      const notificationRows = mentorMappingNotificationRows({
+        changeId,
+        startup,
+        startupRecipients: [startup.founder?.isActive ? startup.founder : null, ...startup.memberships.map(({ person }) => person)].filter((person): person is { id: string; name: string } => Boolean(person)),
+        addedMentors: toAdd,
+        removedMentors: toRemove.map(({ person }) => person),
+      });
+      if (notificationRows.length) await tx.inAppNotification.createMany({ data: notificationRows });
 
       const mentorNames = verifiedMentors.map((m) => m.name).join(', ') || 'none';
       await tx.activityLog.create({
@@ -157,6 +200,7 @@ export async function saveStartupMentorAllocationsAction(_previous: MatchingFeed
     revalidatePath(`/startups/${startupId}`);
     revalidatePath('/audit');
     revalidatePath('/mapping');
+    revalidatePath('/', 'layout');
     return { status: 'success', message: `Saved ${verifiedMentors.length} mentor(s) for ${startup.name}. Use Email workspace to notify the participants.` };
   } catch (error) {
     return { status: 'error', message: message(error) };
@@ -170,17 +214,37 @@ export async function saveMentorStartupAllocationsAction(_previous: MatchingFeed
     const mentorId = requiredText(formData, 'mentorId', 64);
     const startupIds = normalizeAllocationIds(formData.getAll('startupId'));
 
-    const mentor = await prisma.person.findFirstOrThrow({ where: { id: mentorId, role: Role.MENTOR, isActive: true }, select: { name: true } });
+    const mentor = await prisma.person.findFirstOrThrow({ where: { id: mentorId, role: Role.MENTOR, isActive: true }, select: { id: true, name: true } });
     const verifiedStartups = startupIds.length > 0
-      ? await prisma.startup.findMany({ where: { id: { in: startupIds }, status: { in: [StartupStatus.ACTIVE, StartupStatus.NEEDS_ATTENTION] } }, select: { id: true, name: true } })
+      ? await prisma.startup.findMany({
+          where: { id: { in: startupIds }, status: { in: [StartupStatus.ACTIVE, StartupStatus.NEEDS_ATTENTION] } },
+          select: {
+            id: true,
+            name: true,
+            founder: { select: { id: true, name: true, isActive: true } },
+            memberships: { where: { isActive: true, role: 'OWNER', person: { isActive: true } }, select: { person: { select: { id: true, name: true } } } },
+          },
+        })
       : [];
 
     assertAllocationCandidates(startupIds, verifiedStartups);
 
+    const changeId = randomUUID();
     await prisma.$transaction(async (tx) => {
       const existing = await tx.startupAssignment.findMany({
         where: { personId: mentorId, role: AssignmentRole.MENTOR },
-        select: { id: true, startupId: true },
+        select: {
+          id: true,
+          startupId: true,
+          startup: {
+            select: {
+              id: true,
+              name: true,
+              founder: { select: { id: true, name: true, isActive: true } },
+              memberships: { where: { isActive: true, role: 'OWNER', person: { isActive: true } }, select: { person: { select: { id: true, name: true } } } },
+            },
+          },
+        },
       });
       const existingStartupIds = new Set(existing.map((e) => e.startupId));
       const targetStartupIds = new Set(verifiedStartups.map((s) => s.id));
@@ -198,6 +262,23 @@ export async function saveMentorStartupAllocationsAction(_previous: MatchingFeed
           data: toAdd.map((s) => ({ startupId: s.id, personId: mentorId, role: AssignmentRole.MENTOR })),
         });
       }
+      const notificationRows = [
+        ...toAdd.flatMap((startup) => mentorMappingNotificationRows({
+          changeId: `${changeId}:${startup.id}`,
+          startup,
+          startupRecipients: [startup.founder?.isActive ? startup.founder : null, ...startup.memberships.map(({ person }) => person)].filter((person): person is { id: string; name: string } => Boolean(person)),
+          addedMentors: [mentor],
+          removedMentors: [],
+        })),
+        ...toRemove.flatMap(({ startup }) => mentorMappingNotificationRows({
+          changeId: `${changeId}:${startup.id}`,
+          startup,
+          startupRecipients: [startup.founder?.isActive ? startup.founder : null, ...startup.memberships.map(({ person }) => person)].filter((person): person is { id: string; name: string } => Boolean(person)),
+          addedMentors: [],
+          removedMentors: [mentor],
+        })),
+      ];
+      if (notificationRows.length) await tx.inAppNotification.createMany({ data: notificationRows });
 
       const startupNames = verifiedStartups.map((s) => s.name).join(', ') || 'none';
       await tx.activityLog.create({
@@ -217,6 +298,7 @@ export async function saveMentorStartupAllocationsAction(_previous: MatchingFeed
     revalidatePath('/audit');
     revalidatePath('/mapping');
     revalidatePath('/startups', 'layout');
+    revalidatePath('/', 'layout');
     return { status: 'success', message: `Saved ${verifiedStartups.length} incubatee(s) for ${mentor.name}. Use Email workspace to notify the participants.` };
   } catch (error) {
     return { status: 'error', message: message(error) };
@@ -241,4 +323,3 @@ export async function saveDeliveryAssignmentAction(formData: FormData) {
   revalidatePath(`/startups/${startupId}`);
   revalidatePath('/audit');
 }
-
