@@ -48,6 +48,7 @@ const MENTOR_NAV: NavSection[] = [{ items: [
 const FOUNDER_NAV: NavSection[] = [{ items: [
   { href: '/', label: 'Overview', icon: LayoutDashboard },
   { href: '/my-startup', label: 'My Startup', icon: Building2 },
+  { href: '/my-mentors', label: 'My Mentors', icon: GraduationCap },
   { href: '/work', label: 'Tasks', icon: ListChecks },
   { href: '/resources', label: 'Resources', icon: FileText },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
