@@ -19,5 +19,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
     canManagePeople={hasPermission(session.user.role, 'people:manage')}
     notifications={notifications.map((item) => ({ ...item, readAt: item.readAt?.toISOString() ?? null, createdAt: item.createdAt.toISOString() }))}
     unreadNotificationCount={unreadCount}
+    pushPublicKey={process.env.PUSH_VAPID_PUBLIC_KEY || ''}
   >{children}</DashboardShell>;
 }

@@ -2,14 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BarChart3, Building2, CalendarDays, FolderKanban, Home, ListChecks, Menu, Users } from 'lucide-react';
+import { BarChart3, Building2, CalendarDays, FolderKanban, Home, ListChecks, Menu, MessageCircle, Users } from 'lucide-react';
 
 type Item = { href: string; label: string; icon: typeof Home };
 
 function itemsFor(role: string): Item[] {
-  if (role === 'FOUNDER') return [{ href: '/', label: 'Home', icon: Home }, { href: '/my-startup', label: 'Startup', icon: Building2 }, { href: '/work', label: 'Tasks', icon: ListChecks }, { href: '/calendar', label: 'Calendar', icon: CalendarDays }];
-  if (role === 'MENTOR') return [{ href: '/', label: 'Home', icon: Home }, { href: '/startups', label: 'Startups', icon: Building2 }, { href: '/work', label: 'Tasks', icon: ListChecks }, { href: '/calendar', label: 'Calendar', icon: CalendarDays }];
+  if (role === 'FOUNDER') return [{ href: '/', label: 'Home', icon: Home }, { href: '/my-startup', label: 'Startup', icon: Building2 }, { href: '/messages', label: 'Messages', icon: MessageCircle }, { href: '/work', label: 'Tasks', icon: ListChecks }];
+  if (role === 'MENTOR') return [{ href: '/', label: 'Home', icon: Home }, { href: '/startups', label: 'Startups', icon: Building2 }, { href: '/messages', label: 'Messages', icon: MessageCircle }, { href: '/work', label: 'Tasks', icon: ListChecks }];
   if (role === 'INVESTOR') return [{ href: '/', label: 'Home', icon: Home }, { href: '/portfolio', label: 'Portfolio', icon: FolderKanban }, { href: '/insights', label: 'Dashboard', icon: BarChart3 }, { href: '/directory', label: 'Directory', icon: Users }];
+  if (role === 'PROGRAM_LEAD' || role === 'PROGRAM_TEAM') return [{ href: '/', label: 'Home', icon: Home }, { href: '/messages', label: 'Messages', icon: MessageCircle }, { href: '/work', label: 'Tasks', icon: ListChecks }, { href: '/calendar', label: 'Calendar', icon: CalendarDays }];
   return [{ href: '/', label: 'Home', icon: Home }, { href: '/work', label: 'Tasks', icon: ListChecks }, { href: '/calendar', label: 'Calendar', icon: CalendarDays }, { href: '/directory', label: 'Directory', icon: Users }];
 }
 

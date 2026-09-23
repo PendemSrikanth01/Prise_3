@@ -70,6 +70,7 @@ html {
   background-color: var(--prise-page-bg);
   background-image: radial-gradient(circle at 12% 5%, rgb(57 124 152 / 9%), transparent 28rem), radial-gradient(circle at 92% 90%, rgb(229 57 61 / 5%), transparent 26rem), linear-gradient(160deg, #f8fbfc 0%, var(--prise-page-bg) 58%, #eef6f8 100%);
   background-attachment: fixed;
+  min-width: 320px;
 }
 
 body {
@@ -79,6 +80,17 @@ body {
   font-family: Calibri, Carlito, "Segoe UI", Arial, sans-serif;
   font-size: 15px;
   line-height: 1.45;
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 767px) {
+  button,
+  a,
+  select,
+  input:not([type="checkbox"]):not([type="radio"]) {
+    touch-action: manipulation;
+  }
 }
 
 button,

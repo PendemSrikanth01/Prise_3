@@ -128,6 +128,8 @@ export async function deletePersonPermanentlyAction(formData: FormData) {
     await tx.mentorMatchPreference.deleteMany({ where: { OR: [{ mentorId: personId }, { submittedById: personId }] } });
     await tx.mentorAvailability.deleteMany({ where: { mentorId: personId } });
     await tx.supportParticipant.deleteMany({ where: { personId } });
+    await tx.mentorConversationRead.deleteMany({ where: { personId } });
+    await tx.webPushSubscription.deleteMany({ where: { personId } });
     await tx.googleCalendarConnection.deleteMany({ where: { personId } });
     await tx.authSession.deleteMany({ where: { personId } });
     await tx.passwordResetToken.deleteMany({ where: { personId } });

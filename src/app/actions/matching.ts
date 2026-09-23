@@ -9,6 +9,7 @@ import { optionalText, requiredText } from '@/lib/form';
 import { prisma } from '@/lib/prisma';
 import { assertAllocationCandidates, normalizeAllocationIds, normalizeMatchingPreferenceIds } from '@/lib/matching';
 import { mentorMappingNotificationRows } from '@/lib/in-app-notifications';
+import { deliverPushForEventPrefix } from '@/lib/push-notifications';
 
 export type MatchingFeedback = { status: 'idle' | 'success' | 'error'; message: string };
 
@@ -86,6 +87,7 @@ export async function finalizeMentorMatchAction(formData: FormData) {
     }
     await tx.activityLog.create({ data: auditData({ actor: session.user, startupId, entityType: 'StartupAssignment', entityId: assignment.id, action: 'mentor_match_finalized', summary: `Finalized ${mentor.name} as mentor for ${startup.name}` }) });
   });
+  await deliverPushForEventPrefix(changeId);
   revalidatePath('/settings');
   revalidatePath('/directory');
   revalidatePath('/mapping');
@@ -118,6 +120,7 @@ export async function unfinalizeMentorMatchAction(formData: FormData) {
     });
     if (rows.length) await tx.inAppNotification.createMany({ data: rows });
   });
+  await deliverPushForEventPrefix(changeId);
   revalidatePath('/settings');
   revalidatePath('/directory');
   revalidatePath('/mapping');
@@ -193,6 +196,7 @@ export async function saveStartupMentorAllocationsAction(_previous: MatchingFeed
         }),
       });
     });
+    await deliverPushForEventPrefix(changeId);
 
     revalidatePath('/directory');
     revalidatePath('/settings');
@@ -201,7 +205,7 @@ export async function saveStartupMentorAllocationsAction(_previous: MatchingFeed
     revalidatePath('/audit');
     revalidatePath('/mapping');
     revalidatePath('/', 'layout');
-    return { status: 'success', message: `Saved ${verifiedMentors.length} mentor(s) for ${startup.name}. Use Email workspace to notify the participants.` };
+    return { status: 'success', message: `Saved ${verifiedMentors.length} mentor(s) for ${startup.name}. Participants were notified in the app and on subscribed devices.` };
   } catch (error) {
     return { status: 'error', message: message(error) };
   }
@@ -291,6 +295,7 @@ export async function saveMentorStartupAllocationsAction(_previous: MatchingFeed
         }),
       });
     });
+    await deliverPushForEventPrefix(changeId);
 
     revalidatePath('/directory');
     revalidatePath('/settings');
@@ -299,7 +304,7 @@ export async function saveMentorStartupAllocationsAction(_previous: MatchingFeed
     revalidatePath('/mapping');
     revalidatePath('/startups', 'layout');
     revalidatePath('/', 'layout');
-    return { status: 'success', message: `Saved ${verifiedStartups.length} incubatee(s) for ${mentor.name}. Use Email workspace to notify the participants.` };
+    return { status: 'success', message: `Saved ${verifiedStartups.length} incubatee(s) for ${mentor.name}. Participants were notified in the app and on subscribed devices.` };
   } catch (error) {
     return { status: 'error', message: message(error) };
   }
