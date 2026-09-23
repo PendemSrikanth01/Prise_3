@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import { ExternalLink, GraduationCap, Mail } from 'lucide-react';
+import { ExternalLink, GraduationCap, Mail, MessageCircle } from 'lucide-react';
 import { AssignmentRole, Role } from '@prisma/client';
 import { notFound } from 'next/navigation';
 import { requireSession, resolveFounderStartupId } from '@/lib/auth';
@@ -59,6 +59,7 @@ export default async function MyMentorsPage() {
         {mentor.professionalBio ? <p className="mt-4 line-clamp-3 text-sm leading-6 text-prise-text-secondary">{mentor.professionalBio}</p> : null}
 
         <div className="mt-auto flex flex-wrap gap-2 border-t pt-5">
+          <Link href={`/messages/${startupId}/${mentor.id}`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-button bg-prise-action px-4 text-sm font-semibold text-white"><MessageCircle size={16} />Message mentor</Link>
           <a href={`mailto:${mentor.email}?subject=${emailSubject}`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-button bg-prise-primary px-4 text-sm font-semibold text-white"><Mail size={16} />Email mentor</a>
           <Link href={`/mentors/${mentor.id}`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-button border px-4 text-sm font-semibold text-prise-primary"><GraduationCap size={16} />View profile</Link>
           {mentor.linkedinUrl ? <a href={mentor.linkedinUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-button border px-4 text-sm font-semibold text-prise-primary"><ExternalLink size={15} />LinkedIn</a> : null}

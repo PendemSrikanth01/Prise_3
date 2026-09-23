@@ -61,3 +61,32 @@ export function mentorMappingNotificationRows(input: {
 
   return rows;
 }
+
+export function mentorChatNotificationRows(input: {
+  messageId: string;
+  conversationId: string;
+  startupId: string;
+  startupName: string;
+  mentorId: string;
+  mentorName: string;
+  authorId: string;
+  authorName: string;
+  startupRecipients: PersonRef[];
+}): Prisma.InAppNotificationCreateManyInput[] {
+  const recipients = input.authorId === input.mentorId
+    ? input.startupRecipients
+    : [{ id: input.mentorId, name: input.mentorName }];
+  const uniqueRecipients = [...new Map(recipients.filter(({ id }) => id !== input.authorId).map((person) => [person.id, person])).values()];
+  const href = `/messages/${input.startupId}/${input.mentorId}`;
+
+  return uniqueRecipients.map((recipient) => ({
+    recipientId: recipient.id,
+    kind: InAppNotificationKind.CHAT_MESSAGE,
+    title: `New message from ${input.authorName}`,
+    message: `Open the mentoring conversation for ${input.startupName}.`,
+    href,
+    relatedEntityType: 'MentorConversation',
+    relatedEntityId: input.conversationId,
+    eventKey: `mentor-chat:${input.messageId}:${recipient.id}`,
+  }));
+}

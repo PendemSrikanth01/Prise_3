@@ -205,6 +205,7 @@ enum NotificationStatus {
 enum InAppNotificationKind {
   MENTOR_MAPPING_ADDED
   MENTOR_MAPPING_REMOVED
+  CHAT_MESSAGE
 }
 
 enum DeliverableStatus {
@@ -335,6 +336,10 @@ model Person {
   taskComments              TaskComment[]                @relation("TaskCommentAuthor")
   supportMessages           SupportMessage[]             @relation("SupportMessageAuthor")
   supportParticipants       SupportParticipant[]         @relation("SupportParticipantPerson")
+  mentorConversations       MentorConversation[]         @relation("MentorConversationMentor")
+  mentorChatMessages        MentorChatMessage[]          @relation("MentorChatMessageAuthor")
+  mentorConversationReads   MentorConversationRead[]
+  webPushSubscriptions      WebPushSubscription[]
   uploadedResources         Resource[]                   @relation("ResourceUploader")
   mentorMatchPreferences    MentorMatchPreference[]      @relation("MatchPreferenceMentor")
   submittedMatchPreferences MentorMatchPreference[]      @relation("MatchPreferenceSubmitter")
@@ -524,6 +529,7 @@ model Startup {
   activityLogs           ActivityLog[]           @relation("StartupActivity")
   taskComments           TaskComment[]
   supportMessages        SupportMessage[]
+  mentorConversations    MentorConversation[]
   mentorMatchPreferences MentorMatchPreference[]
 
   createdAt DateTime @default(now())
@@ -1047,6 +1053,69 @@ model InAppNotification {
 
   @@index([recipientId, readAt, createdAt])
   @@index([relatedEntityType, relatedEntityId])
+}
+
+// One durable conversation per finalized startup/mentor pair. Removing an
+// assignment revokes participant access but intentionally keeps its history.
+model MentorConversation {
+  id        String   @id @default(cuid())
+  startupId String
+  mentorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  startup  Startup                  @relation(fields: [startupId], references: [id], onDelete: Cascade)
+  mentor   Person                   @relation("MentorConversationMentor", fields: [mentorId], references: [id], onDelete: Cascade)
+  messages MentorChatMessage[]
+  reads    MentorConversationRead[]
+
+  @@unique([startupId, mentorId])
+  @@index([mentorId, updatedAt])
+  @@index([startupId, updatedAt])
+}
+
+model MentorChatMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  authorId       String?
+  body           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  conversation MentorConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author       Person?            @relation("MentorChatMessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model MentorConversationRead {
+  id             String   @id @default(cuid())
+  conversationId String
+  personId       String
+  lastReadAt     DateTime @default(now())
+
+  conversation MentorConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  person       Person             @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, personId])
+  @@index([personId, lastReadAt])
+}
+
+model WebPushSubscription {
+  id           String    @id @default(cuid())
+  personId     String
+  endpoint     String    @unique
+  p256dh       String
+  auth         String
+  userAgent    String?
+  lastFailedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId, updatedAt])
 }
 
 model EmailMessage {

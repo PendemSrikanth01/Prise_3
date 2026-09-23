@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="108" fill="#397c98"/>
+  <circle cx="256" cy="256" r="178" fill="#fff" opacity=".1"/>
+  <text x="256" y="278" text-anchor="middle" font-family="Arial, sans-serif" font-size="118" font-weight="700" fill="#fff">PrISE</text>
+  <circle cx="332" cy="231" r="11" fill="#e5393d"/>
+  <text x="256" y="336" text-anchor="middle" font-family="Arial, sans-serif" font-size="38" font-weight="700" letter-spacing="8" fill="#dcecf2">3.0</text>
+</svg>

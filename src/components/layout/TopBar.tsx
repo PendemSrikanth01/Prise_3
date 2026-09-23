@@ -5,10 +5,11 @@ import { Bell, CheckCheck, Menu, Search, UserRound } from 'lucide-react';
 import { useState } from 'react';
 import { markAllInAppNotificationsReadAction, markInAppNotificationReadAction } from '@/app/actions/in-app-notifications';
 import { PriseWordmark } from '@/components/brand/BrandIdentity';
+import { PwaControls } from '@/components/pwa/PwaControls';
 
 type NotificationItem = { id: string; title: string; message: string; href: string | null; readAt: string | null; createdAt: string };
 
-export function TopBar({ onMenu, mobileOpen, userName, notifications, unreadCount }: { onMenu: () => void; mobileOpen: boolean; userName: string; notifications: NotificationItem[]; unreadCount: number }) {
+export function TopBar({ onMenu, mobileOpen, userName, notifications, unreadCount, pushPublicKey }: { onMenu: () => void; mobileOpen: boolean; userName: string; notifications: NotificationItem[]; unreadCount: number; pushPublicKey: string }) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-white/20 bg-[linear-gradient(135deg,rgb(37_104_130/96%),rgb(57_124_152/92%))] px-4 text-white shadow-[0_8px_28px_rgb(23_79_101/15%)] backdrop-blur-2xl sm:px-6">
@@ -39,6 +40,7 @@ export function TopBar({ onMenu, mobileOpen, userName, notifications, unreadCoun
       <div className="flex items-center gap-2">
         <div className="hidden text-right sm:block"><div className="text-sm font-semibold text-white">{userName}</div><div className="text-[11px] text-white/65">Secure session</div></div>
         <div className="hidden h-9 w-9 items-center justify-center rounded-full bg-white/14 text-white sm:flex"><UserRound size={18} /></div>
+        <PwaControls publicKey={pushPublicKey} />
         <div className="relative">
           <button type="button" onClick={() => setNotificationsOpen((open) => !open)} className="relative rounded-full p-2 text-white/85 transition hover:bg-white/10" aria-label={`${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}`} aria-expanded={notificationsOpen}>
             <Bell size={18} />
