@@ -16,7 +16,8 @@ type EventItem = {
   attendance: Array<{ id: string; startupId: string; mode: AttendanceMode; note: string | null; startup: { name: string } }>;
 };
 type Option = { id: string; name: string; role?: string };
-type Props = { events: EventItem[]; startups: Option[]; facilitators: Option[]; canManageSessions: boolean; canManageWebinars: boolean; canManageAttendance: boolean; googleCalendar: { configured: boolean; connectedEmail: string | null; status: string | null } };
+type StartupParticipantGroup = { startupId: string; people: Array<{ id: string; name: string; role: string; defaultSelected: boolean }> };
+type Props = { events: EventItem[]; startups: Option[]; startupParticipants: StartupParticipantGroup[]; facilitators: Option[]; canManageSessions: boolean; canManageWebinars: boolean; canManageAttendance: boolean; googleCalendar: { configured: boolean; connectedEmail: string | null; status: string | null } };
 
 const inputClass = 'h-10 w-full rounded-input border border-prise-border bg-white px-3 text-sm outline-none transition focus:border-prise-primary focus:ring-4 focus:ring-prise-primary/10';
 const colors: Record<SessionType, string> = {
@@ -54,7 +55,7 @@ function monthGrid(month: Date) {
   return Array.from({ length: 42 }, (_, index) => new Date(month.getFullYear(), month.getMonth(), 1 - mondayOffset + index));
 }
 
-export function CalendarView({ events, startups, facilitators, canManageSessions, canManageWebinars, canManageAttendance, googleCalendar }: Props) {
+export function CalendarView({ events, startups, startupParticipants, facilitators, canManageSessions, canManageWebinars, canManageAttendance, googleCalendar }: Props) {
   const firstEvent = events.find((event) => new Date(event.startsAt) >= new Date());
   const initial = firstEvent ? new Date(firstEvent.startsAt) : new Date();
   const [month, setMonth] = useState(new Date(initial.getFullYear(), initial.getMonth(), 1));
@@ -62,6 +63,7 @@ export function CalendarView({ events, startups, facilitators, canManageSessions
   const [filter, setFilter] = useState<(typeof filters)[number]>('ALL');
   const [composer, setComposer] = useState(false);
   const [draftType, setDraftType] = useState<SessionType>(SessionType.MENTORING);
+  const [draftStartupId, setDraftStartupId] = useState('');
   const [recurring, setRecurring] = useState(false);
   const visible = useMemo(() => events.filter((event) => filter === 'ALL' || event.type === filter), [events, filter]);
   const byDay = useMemo(() => visible.reduce((groups, event) => {
@@ -75,6 +77,7 @@ export function CalendarView({ events, startups, facilitators, canManageSessions
   const selectedEvents = byDay.get(selected) ?? [];
   const upcoming = visible.filter((event) => new Date(event.startsAt) >= new Date()).slice(0, 30);
   const canCreate = canManageSessions || canManageWebinars;
+  const invitees = startupParticipants.find(({ startupId }) => startupId === draftStartupId)?.people ?? [];
 
   return <div className="mx-auto w-full max-w-[1500px] p-4 sm:p-5 lg:p-6">
     <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -98,15 +101,16 @@ export function CalendarView({ events, startups, facilitators, canManageSessions
     <section className="mt-4 rounded-card border border-prise-border bg-white shadow-card md:hidden"><div className="border-b px-4 py-4"><h2 className="font-bold">Upcoming agenda</h2><p className="mt-1 text-xs text-prise-text-secondary">Compact view for smaller screens</p></div><div className="divide-y">{upcoming.map((event) => <EventSummary key={event.id} event={event} />)}{upcoming.length === 0 ? <p className="p-8 text-center text-sm text-prise-text-secondary">No upcoming events.</p> : null}</div></section>
 
     {composer ? <div className="fixed inset-0 z-[70] flex justify-end bg-[#142832]/35 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Schedule event"><button className="absolute inset-0" aria-label="Close event form" onClick={() => setComposer(false)} /><div className="glass-surface relative h-full w-full max-w-md overflow-y-auto rounded-none border-y-0 border-r-0 p-5 shadow-2xl"><div className="flex items-center justify-between"><h2 className="text-xl font-bold">Schedule event</h2><button onClick={() => setComposer(false)} className="rounded-full border bg-white p-2"><X size={17} /></button></div><form action={createCalendarEventAction} className="mt-5 space-y-3">
-      <label className="block text-sm font-semibold">Event type<select name="type" value={draftType} onChange={(event) => setDraftType(event.target.value as SessionType)} className={`${inputClass} mt-1.5`}>{Object.values(SessionType).filter((type) => type !== SessionType.WORKSHOP || canManageWebinars).map((type) => <option key={type}>{type}</option>)}</select></label>
-      {draftType !== SessionType.WORKSHOP ? <label className="block text-sm font-semibold">Startup<select name="startupId" required className={`${inputClass} mt-1.5`}><option value="">Choose startup</option>{startups.map((startup) => <option key={startup.id} value={startup.id}>{startup.name}</option>)}</select></label> : null}
+      <label className="block text-sm font-semibold">Event type<select name="type" value={draftType} onChange={(event) => { const nextType = event.target.value as SessionType; setDraftType(nextType); if (nextType === SessionType.WORKSHOP) setDraftStartupId(''); }} className={`${inputClass} mt-1.5`}>{Object.values(SessionType).filter((type) => type !== SessionType.WORKSHOP || canManageWebinars).map((type) => <option key={type}>{type}</option>)}</select></label>
+      {draftType !== SessionType.WORKSHOP ? <label className="block text-sm font-semibold">Startup<select name="startupId" required value={draftStartupId} onChange={(event) => setDraftStartupId(event.target.value)} className={`${inputClass} mt-1.5`}><option value="">Choose startup</option>{startups.map((startup) => <option key={startup.id} value={startup.id}>{startup.name}</option>)}</select></label> : null}
+      {draftType !== SessionType.WORKSHOP && draftStartupId ? <fieldset className="rounded-xl border border-prise-border bg-prise-page p-3"><legend className="px-1 text-xs font-semibold text-prise-text-secondary">Email invitations</legend><p className="mb-2 text-xs leading-5 text-prise-text-secondary">The facilitator and founder are always included. Select any additional startup members or assigned mentors who should receive the invitation and reminder.</p><div className="max-h-40 space-y-1 overflow-y-auto">{invitees.map((person) => <label key={`${draftStartupId}:${person.id}`} className="flex min-h-10 items-center gap-3 rounded-lg bg-white px-3 py-2 text-sm"><input type="checkbox" name="participantId" value={person.id} defaultChecked={person.defaultSelected} className="h-4 w-4 accent-prise-primary" /><span className="min-w-0"><span className="block truncate font-semibold">{person.name}</span><span className="block text-[11px] capitalize text-prise-text-muted">{person.role}</span></span></label>)}</div></fieldset> : null}
       {facilitators.length ? <label className="block text-sm font-semibold">Facilitator<select name="facilitatorId" className={`${inputClass} mt-1.5`}><option value="">Use my account</option>{facilitators.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label> : null}
       <label className="block text-sm font-semibold">Title<input name="title" required placeholder="Clear agenda or event title" className={`${inputClass} mt-1.5`} /></label>
       <div className="grid gap-3"><DateTimeField name="startsAt" label="Starts" required /><DateTimeField name="endsAt" label="Ends" /></div>
       <label className="flex min-h-11 items-center gap-3 rounded-input border bg-prise-page px-3 text-sm font-semibold"><input name="recurring" type="checkbox" checked={recurring} onChange={(event) => setRecurring(event.target.checked)} className="h-4 w-4 accent-prise-primary" />Repeat on selected weekdays</label>
       {recurring ? <fieldset className="rounded-xl border p-4"><legend className="px-1 text-xs font-semibold text-prise-text-secondary">Weekly recurrence</legend><div className="flex flex-wrap gap-2">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day, index) => <label key={day} className="flex items-center gap-1.5 rounded-lg bg-prise-page px-2.5 py-2 text-xs font-semibold"><input type="checkbox" name="recurrenceDay" value={index} />{day}</label>)}</div><label className="mt-3 block text-sm font-semibold">Repeat until<input name="recurrenceUntil" type="date" required className={`${inputClass} mt-1.5`} /></label><p className="mt-2 text-xs text-prise-text-muted">Up to 90 events are created. Each occurrence can be edited individually.</p></fieldset> : null}
       {draftType !== SessionType.WORKSHOP && googleCalendar.connectedEmail ? <label className="flex min-h-14 items-start gap-3 rounded-input border border-prise-primary/25 bg-info-bg px-3 py-3 text-sm"><input name="createGoogleMeet" type="checkbox" defaultChecked className="mt-0.5 h-4 w-4 accent-prise-primary" /><span><strong className="block text-prise-text">Create Google Meet</strong><span className="mt-0.5 block text-xs text-prise-text-secondary">Add the event to Google Calendar and email invitations to participants.</span></span></label> : null}
-      {draftType !== SessionType.WORKSHOP ? <label className="flex min-h-12 items-start gap-3 rounded-input border bg-prise-page px-3 py-3 text-sm"><input name="includePriseTeam" type="checkbox" className="mt-0.5 h-4 w-4 accent-prise-primary" /><span><strong className="block text-prise-text">Keep PrISE Team in CC</strong><span className="mt-0.5 block text-xs text-prise-text-secondary">Include the configured team address in the meeting invitation.</span></span></label> : null}
+      {draftType !== SessionType.WORKSHOP ? <label className="flex min-h-12 items-start gap-3 rounded-input border bg-prise-page px-3 py-3 text-sm"><input name="includePriseTeam" type="checkbox" defaultChecked className="mt-0.5 h-4 w-4 accent-prise-primary" /><span><strong className="block text-prise-text">Keep PrISE Team in CC</strong><span className="mt-0.5 block text-xs text-prise-text-secondary">Include Vijender, Shamini and Janani in the first meeting email and Google Calendar invitation.</span></span></label> : null}
       <label className="block text-sm font-semibold">{draftType !== SessionType.WORKSHOP && googleCalendar.connectedEmail ? 'Manual meeting link (optional fallback)' : 'Meeting link'}<input name="meetingUrl" type="url" placeholder="https://meet.google.com/..." className={`${inputClass} mt-1.5`} /></label>
       <label className="block text-sm font-semibold">Notes<textarea name="description" rows={4} placeholder="Context and intended outcome" className="mt-1.5 w-full rounded-input border border-prise-border p-3 text-sm" /></label>
       <SubmitButton className="w-full">Schedule event</SubmitButton>

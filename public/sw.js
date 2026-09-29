@@ -1,12 +1,16 @@
-const CACHE_NAME = 'prise-shell-v1';
-const SHELL_ASSETS = ['/offline', '/pwa-icon.svg', '/brand/bvcsrb-logo.png'];
+const CACHE_NAME = 'prise-shell-v2';
+const SHELL_ASSETS = ['/offline', '/pwa-icon.svg', '/pwa-icon-192.png', '/pwa-icon-512.png', '/pwa-icon-maskable-512.png', '/brand/bvcsrb-logo.png'];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS)));
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('fetch', (event) => {
@@ -24,8 +28,8 @@ self.addEventListener('push', (event) => {
   try { payload = { ...payload, ...event.data.json() }; } catch {}
   event.waitUntil(self.registration.showNotification(payload.title, {
     body: payload.body,
-    icon: '/pwa-icon.svg',
-    badge: '/pwa-icon.svg',
+    icon: '/pwa-icon-192.png',
+    badge: '/pwa-icon-192.png',
     tag: payload.tag,
     renotify: true,
     data: { href: payload.href },

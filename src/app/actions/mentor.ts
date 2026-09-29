@@ -65,7 +65,18 @@ export async function createSessionAction(formData: FormData) {
 
   const startup = await prisma.startup.findUniqueOrThrow({
     where: { id: startupId },
-    select: { name: true, founder: { select: { id: true, name: true, email: true, isActive: true } } },
+    select: {
+      name: true,
+      founder: { select: { id: true, name: true, email: true, isActive: true } },
+      memberships: {
+        where: { isActive: true, person: { isActive: true } },
+        select: { person: { select: { id: true, name: true, email: true } } },
+      },
+      assignments: {
+        where: { person: { isActive: true } },
+        select: { person: { select: { id: true, name: true, email: true } } },
+      },
+    },
   });
   const requestedFacilitatorId = optionalText(formData, 'facilitatorId', 64);
   const facilitatorId = actor.user.role === Role.MENTOR ? actor.user.id : requestedFacilitatorId ?? actor.user.id;
@@ -73,7 +84,14 @@ export async function createSessionAction(formData: FormData) {
     where: { id: facilitatorId, isActive: true },
     select: { id: true, name: true, email: true },
   });
-  const participants = [...new Set([facilitator.id, startup.founder?.isActive ? startup.founder.id : null].filter((id): id is string => Boolean(id)))];
+  const eligiblePeople = new Map([
+    ...(startup.founder?.isActive ? [[startup.founder.id, startup.founder] as const] : []),
+    ...startup.memberships.map(({ person }) => [person.id, person] as const),
+    ...startup.assignments.map(({ person }) => [person.id, person] as const),
+  ]);
+  const requestedParticipantIds = [...new Set(formData.getAll('participantId').filter((value): value is string => typeof value === 'string'))];
+  if (requestedParticipantIds.some((personId) => !eligiblePeople.has(personId))) throw new Error('One or more selected invitees do not belong to this startup.');
+  const participants = [...new Set([facilitator.id, startup.founder?.isActive ? startup.founder.id : null, ...requestedParticipantIds].filter((id): id is string => Boolean(id)))];
   const title = requiredText(formData, 'title', 180);
   const createGoogleMeet = formData.get('createGoogleMeet') === 'on';
   const includePriseTeam = formData.get('includePriseTeam') === 'on';
@@ -105,7 +123,7 @@ export async function createSessionAction(formData: FormData) {
     return sessions;
   });
 
-  const recipients = [facilitator, ...(startup.founder?.isActive ? [startup.founder] : [])];
+  const recipients = await prisma.person.findMany({ where: { id: { in: participants }, isActive: true }, select: { id: true, name: true, email: true } });
   if (googleConnection) await syncNewSessionsToGoogle(created.map(({ id }) => id), googleConnection);
   const scheduledSessions = googleConnection
     ? await prisma.session.findMany({ where: { id: { in: created.map(({ id }) => id) } }, orderBy: { startsAt: 'asc' } })

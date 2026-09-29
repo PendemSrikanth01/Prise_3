@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { BellRing, Download, LoaderCircle, Smartphone, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { BellRing, Download, LoaderCircle, RefreshCw, Smartphone, X } from 'lucide-react';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -20,21 +20,39 @@ export function PwaControls({ publicKey }: { publicKey: string }) {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const registrationRef = useRef<ServiceWorkerRegistration | null>(null);
+  const applyingUpdateRef = useRef(false);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
     const frame = window.requestAnimationFrame(() => setInstalled(window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone)));
+    const controllerChanged = () => {
+      if (applyingUpdateRef.current) window.location.reload();
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', controllerChanged);
     void navigator.serviceWorker.register('/sw.js').then(async (registration) => {
+      registrationRef.current = registration;
+      setUpdateAvailable(Boolean(registration.waiting));
+      registration.addEventListener('updatefound', () => {
+        const worker = registration.installing;
+        worker?.addEventListener('statechange', () => {
+          if (worker.state === 'installed' && navigator.serviceWorker.controller) setUpdateAvailable(true);
+        });
+      });
       setSubscribed(Boolean(await registration.pushManager.getSubscription()));
     }).catch(() => setMessage('App services are unavailable in this browser.'));
+    const updateTimer = window.setInterval(() => { void registrationRef.current?.update(); }, 60 * 60 * 1000);
     const capturePrompt = (event: Event) => { event.preventDefault(); setInstallPrompt(event as BeforeInstallPromptEvent); };
     const markInstalled = () => { setInstalled(true); setInstallPrompt(null); };
     window.addEventListener('beforeinstallprompt', capturePrompt);
     window.addEventListener('appinstalled', markInstalled);
     return () => {
       window.cancelAnimationFrame(frame);
+      window.clearInterval(updateTimer);
+      navigator.serviceWorker.removeEventListener('controllerchange', controllerChanged);
       window.removeEventListener('beforeinstallprompt', capturePrompt);
       window.removeEventListener('appinstalled', markInstalled);
     };
@@ -46,6 +64,21 @@ export function PwaControls({ publicKey }: { publicKey: string }) {
     const choice = await installPrompt.userChoice;
     if (choice.outcome === 'accepted') setInstalled(true);
     setInstallPrompt(null);
+  }
+
+  async function applyUpdate() {
+    setBusy(true);
+    setMessage('');
+    applyingUpdateRef.current = true;
+    const registration = registrationRef.current;
+    if (!registration?.waiting) {
+      await registration?.update();
+      applyingUpdateRef.current = false;
+      setBusy(false);
+      setMessage('PrISE is already up to date.');
+      return;
+    }
+    registration.waiting.postMessage({ type: 'SKIP_WAITING' });
   }
 
   async function enablePush() {
@@ -90,6 +123,7 @@ export function PwaControls({ publicKey }: { publicKey: string }) {
     {open ? <div className="absolute right-0 top-12 z-50 w-[min(92vw,340px)] rounded-2xl border bg-white p-4 text-prise-text shadow-2xl">
       <div className="flex items-start justify-between gap-3"><div><div className="font-semibold">PrISE on this device</div><p className="mt-1 text-xs leading-5 text-prise-text-secondary">Install the app and receive alerts even when PrISE is closed.</p></div><button type="button" onClick={() => setOpen(false)} aria-label="Close" className="rounded-lg p-1.5 text-prise-text-muted hover:bg-prise-page"><X size={16} /></button></div>
       <div className="mt-4 grid gap-2">
+        {updateAvailable ? <button type="button" disabled={busy} onClick={applyUpdate} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-button bg-success px-4 text-sm font-semibold text-white disabled:opacity-60">{busy ? <LoaderCircle className="animate-spin" size={17} /> : <RefreshCw size={17} />}Update PrISE now</button> : null}
         {installed ? <div className="flex min-h-11 items-center gap-2 rounded-xl bg-success-bg px-3 text-sm font-semibold text-success"><Smartphone size={17} />App installed</div> : installPrompt ? <button type="button" onClick={install} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-button bg-prise-primary px-4 text-sm font-semibold text-white"><Download size={17} />Install PrISE app</button> : <div className="rounded-xl bg-prise-page p-3 text-xs leading-5 text-prise-text-secondary">Use your browser menu and choose <strong>Add to Home screen</strong> or <strong>Install app</strong>.</div>}
         {!publicKey ? <div className="rounded-xl bg-warning-bg p-3 text-xs leading-5 text-warning">Mobile alerts need VAPID keys configured on the server.</div> : subscribed ? <button type="button" disabled={busy} onClick={disablePush} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-button border px-4 text-sm font-semibold text-prise-text-secondary disabled:opacity-60">{busy ? <LoaderCircle className="animate-spin" size={17} /> : <BellRing size={17} />}Disable notifications</button> : <button type="button" disabled={busy} onClick={enablePush} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-button bg-prise-action px-4 text-sm font-semibold text-white disabled:opacity-60">{busy ? <LoaderCircle className="animate-spin" size={17} /> : <BellRing size={17} />}Enable mobile notifications</button>}
       </div>
