@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { MessageCircle, Users } from 'lucide-react';
 import { AssignmentRole, Role } from '@prisma/client';
-import { notFound } from 'next/navigation';
-import { accessibleStartupWhere, isProgramRole, requireSession } from '@/lib/auth';
+import { notFound, redirect } from 'next/navigation';
+import { isProgramRole, requireSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -10,12 +10,12 @@ export const dynamic = 'force-dynamic';
 export default async function MessagesPage() {
   const session = await requireSession();
   if (!([Role.FOUNDER, Role.MENTOR, Role.PROGRAM_LEAD, Role.PROGRAM_TEAM] as Role[]).includes(session.user.role)) notFound();
+  if (session.user.role === Role.FOUNDER) redirect('/my-mentors');
   const assignments = await prisma.startupAssignment.findMany({
     where: {
       role: AssignmentRole.MENTOR,
       person: { isActive: true },
       ...(session.user.role === Role.MENTOR ? { personId: session.user.id } : {}),
-      ...(session.user.role === Role.FOUNDER ? { startup: accessibleStartupWhere(session.user) } : {}),
     },
     select: { startupId: true, personId: true, createdAt: true, startup: { select: { name: true } }, person: { select: { name: true, organization: true } } },
     orderBy: [{ startup: { name: 'asc' } }, { person: { name: 'asc' } }],
@@ -59,7 +59,7 @@ export default async function MessagesPage() {
       const unread = Boolean(lastMessage && !isProgramRole(session.user.role) && (!lastReadAt || lastMessage.createdAt > lastReadAt));
       return <Link key={`${assignment.startupId}:${assignment.personId}`} href={`/messages/${assignment.startupId}/${assignment.personId}`} className="group flex min-h-24 items-center gap-4 rounded-card border bg-white p-4 shadow-card hover:-translate-y-0.5 hover:border-prise-primary/40 hover:shadow-card-hover sm:p-5">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-purple-bg text-accent-purple"><MessageCircle size={20} /></div>
-        <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h2 className="truncate font-bold">{isProgramRole(session.user.role) ? `${assignment.startup.name} · ${assignment.person.name}` : session.user.role === Role.MENTOR ? assignment.startup.name : assignment.person.name}</h2>{assignment.archived ? <span className="rounded-pill bg-prise-page px-2 py-0.5 text-[10px] font-semibold text-prise-text-muted">Archived</span> : null}{unread ? <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-prise-action" aria-label="Unread messages" /> : null}</div><p className="mt-0.5 truncate text-xs text-prise-text-muted">{session.user.role === Role.MENTOR ? 'Startup mentoring conversation' : `${assignment.person.organization || 'PrISE mentor'} · ${assignment.startup.name}`}</p><p className="mt-2 truncate text-sm text-prise-text-secondary">{lastMessage ? `${lastMessage.author?.name || 'Former user'}: ${lastMessage.body}` : 'No messages yet — open the conversation to begin.'}</p></div>
+        <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h2 className="truncate font-bold">{programAccess ? `${assignment.startup.name} · ${assignment.person.name}` : assignment.startup.name}</h2>{assignment.archived ? <span className="rounded-pill bg-prise-page px-2 py-0.5 text-[10px] font-semibold text-prise-text-muted">Archived</span> : null}{unread ? <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-prise-action" aria-label="Unread messages" /> : null}</div><p className="mt-0.5 truncate text-xs text-prise-text-muted">{programAccess ? `${assignment.person.organization || 'PrISE mentor'} · ${assignment.startup.name}` : 'Startup mentoring conversation'}</p><p className="mt-2 truncate text-sm text-prise-text-secondary">{lastMessage ? `${lastMessage.author?.name || 'Former user'}: ${lastMessage.body}` : 'No messages yet — open the conversation to begin.'}</p></div>
         <span className="hidden text-sm font-semibold text-prise-primary sm:block">Open →</span>
       </Link>;
     })}</div> : <section className="mt-6 rounded-card border border-dashed bg-white p-10 text-center shadow-card"><Users size={28} className="mx-auto text-prise-text-muted" /><h2 className="mt-3 font-semibold">No confirmed mentor conversations</h2><p className="mt-2 text-sm text-prise-text-secondary">A conversation becomes available when the Program Team confirms a mentor assignment.</p></section>}

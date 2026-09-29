@@ -31,7 +31,7 @@ export default async function MentorsPage({ searchParams }: { searchParams: Prom
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const [mentors, submittedMilestones] = await Promise.all([
+  const [mentors, submittedMilestones, completedMentorSessions] = await Promise.all([
     prisma.person.findMany({
       where: { role: Role.MENTOR, isActive: true },
       orderBy: { name: 'asc' },
@@ -71,17 +71,30 @@ export default async function MentorsPage({ searchParams }: { searchParams: Prom
           orderBy: [{ priority: 'asc' }, { createdAt: 'desc' }],
           select: { id: true, title: true, status: true, startup: { select: { id: true, name: true } } },
         },
-        _count: { select: { milestoneReviews: true, reviewedDeliverables: true } },
+        _count: { select: { milestoneReviews: true, reviewedDeliverables: true, mentorChatMessages: true } },
       },
     }),
     prisma.milestone.findMany({
       where: { status: MilestoneStatus.SUBMITTED },
       select: { startupId: true },
     }),
+    prisma.session.findMany({
+      where: { status: SessionStatus.COMPLETED },
+      select: { facilitatorId: true, participantIds: true },
+    }),
   ]);
 
   const submittedByStartup = new Map<string, number>();
   submittedMilestones.forEach(({ startupId }) => submittedByStartup.set(startupId, (submittedByStartup.get(startupId) ?? 0) + 1));
+  const mentorIds = new Set(mentors.map((mentor) => mentor.id));
+  const completedMeetingCountByMentor = new Map<string, number>();
+  for (const session of completedMentorSessions) {
+    const participants = new Set([session.facilitatorId, ...session.participantIds]);
+    for (const personId of participants) {
+      if (!personId || !mentorIds.has(personId)) continue;
+      completedMeetingCountByMentor.set(personId, (completedMeetingCountByMentor.get(personId) ?? 0) + 1);
+    }
+  }
 
   const rows = mentors.map((mentor) => {
     const assignedStartupIds = new Set(mentor.assignments.map(({ startup }) => startup.id));
@@ -99,7 +112,7 @@ export default async function MentorsPage({ searchParams }: { searchParams: Prom
       hasUpcomingSession: upcomingSessions.length > 0,
     };
     const attention = mentorAttention(signal);
-    return { ...mentor, pendingReviewCount, upcomingSessions, completedSessions, completedThisMonth, signal, attention };
+    return { ...mentor, pendingReviewCount, upcomingSessions, completedSessions, completedThisMonth, completedMeetingCount: completedMeetingCountByMentor.get(mentor.id) ?? 0, signal, attention };
   });
 
   const attentionCount = rows.filter((row) => !['ON_TRACK', 'UNASSIGNED', 'INACTIVE'].includes(row.attention)).length;
@@ -155,7 +168,7 @@ export default async function MentorsPage({ searchParams }: { searchParams: Prom
               return <Link key={startup.id} href={`/startups/${startup.id}`} className="flex items-center gap-3 py-3 first:pt-1 last:pb-1"><div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{startup.name}</div><div className="mt-1 flex items-center gap-2"><div className="h-1.5 flex-1 overflow-hidden rounded-full bg-prise-page"><div className="h-full rounded-full bg-prise-primary" style={{ width: `${progress}%` }} /></div><span className="text-xs font-medium text-prise-text-secondary">{progress}%</span></div></div><ArrowRight size={16} className="text-prise-text-muted" /></Link>;
             })}{mentor.assignments.length === 0 ? <div className="rounded-xl border border-dashed p-5 text-center"><p className="text-sm text-prise-text-secondary">No startup assignment yet.</p><Link href="/startups" className="mt-2 inline-block text-sm font-semibold text-prise-primary">Choose a startup to assign →</Link></div> : null}</div></section>
 
-            <section className="rounded-card border bg-white p-4"><h3 className="font-semibold">Activity & capacity</h3><dl className="mt-3 grid grid-cols-2 gap-3"><div className="rounded-xl bg-prise-page p-3"><dt className="text-xs text-prise-text-secondary">Next session</dt><dd className="mt-1 text-sm font-semibold">{formatDate(mentor.upcomingSessions[0]?.startsAt)}</dd></div><div className="rounded-xl bg-prise-page p-3"><dt className="text-xs text-prise-text-secondary">Last session</dt><dd className="mt-1 text-sm font-semibold">{formatDate(lastCompleted?.startsAt)}</dd></div><div className="rounded-xl bg-prise-page p-3"><dt className="text-xs text-prise-text-secondary">Milestone reviews</dt><dd className="mt-1 text-sm font-semibold">{mentor._count.milestoneReviews}</dd></div><div className="rounded-xl bg-prise-page p-3"><dt className="text-xs text-prise-text-secondary">Evidence reviews</dt><dd className="mt-1 text-sm font-semibold">{mentor._count.reviewedDeliverables}</dd></div></dl></section>
+            <section className="rounded-card border bg-white p-4"><h3 className="font-semibold">Activity & capacity</h3><dl className="mt-3 grid grid-cols-2 gap-3"><div className="rounded-xl bg-prise-page p-3"><dt className="text-xs text-prise-text-secondary">Meetings held</dt><dd className="mt-1 text-sm font-semibold">{mentor.completedMeetingCount}</dd></div><div className="rounded-xl bg-prise-page p-3"><dt className="text-xs text-prise-text-secondary">Messages sent</dt><dd className="mt-1 text-sm font-semibold">{mentor._count.mentorChatMessages}</dd></div><div className="rounded-xl bg-prise-page p-3"><dt className="text-xs text-prise-text-secondary">Next session</dt><dd className="mt-1 text-sm font-semibold">{formatDate(mentor.upcomingSessions[0]?.startsAt)}</dd></div><div className="rounded-xl bg-prise-page p-3"><dt className="text-xs text-prise-text-secondary">Last session</dt><dd className="mt-1 text-sm font-semibold">{formatDate(lastCompleted?.startsAt)}</dd></div><div className="rounded-xl bg-prise-page p-3"><dt className="text-xs text-prise-text-secondary">Milestone reviews</dt><dd className="mt-1 text-sm font-semibold">{mentor._count.milestoneReviews}</dd></div><div className="rounded-xl bg-prise-page p-3"><dt className="text-xs text-prise-text-secondary">Evidence reviews</dt><dd className="mt-1 text-sm font-semibold">{mentor._count.reviewedDeliverables}</dd></div></dl></section>
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">

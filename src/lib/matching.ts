@@ -1,3 +1,5 @@
+import { Role } from '@prisma/client';
+
 export const MAX_MATCHING_PREFERENCES = 3;
 
 export function normalizeAllocationIds(values: FormDataEntryValue[]) {
@@ -14,4 +16,8 @@ export function normalizeMatchingPreferenceIds(values: FormDataEntryValue[]) {
   if (ids.length === 0) throw new Error('Select at least one preference before submitting.');
   if (ids.length > MAX_MATCHING_PREFERENCES) throw new Error(`Choose up to ${MAX_MATCHING_PREFERENCES} preferences.`);
   return ids;
+}
+
+export function canSelectCoreMentor(role: Role, founderStartupId: string | null, requestedStartupId: string) {
+  return role === Role.FOUNDER && founderStartupId === requestedStartupId;
 }

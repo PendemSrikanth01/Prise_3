@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { LockKeyhole, MessageCircle, UsersRound } from 'lucide-react';
+import { LockKeyhole, MessageCircle } from 'lucide-react';
 import { Priority, Role, StartupMemberRole, SupportAudience, SupportRequestStatus } from '@prisma/client';
 import { redirect } from 'next/navigation';
 import { addSupportMessageAction, updateSupportAudienceAction } from '@/app/actions/collaboration';
@@ -7,7 +7,7 @@ import { deleteSupportAction, updateSupportAction } from '@/app/actions/workflow
 import { SupportCreateForm } from '@/components/support/SupportCreateForm';
 import { ConfirmButton, SubmitButton } from '@/components/ui/FormButtons';
 import { accessibleStartupWhere, hasPermission, hasStartupPermission, requireSession } from '@/lib/auth';
-import { canDeleteSupportRequest, supportAudienceLabel } from '@/lib/collaboration-policy';
+import { canDeleteSupportRequest, supportAudienceLabel, ticketParticipantRoles } from '@/lib/collaboration-policy';
 import { prisma } from '@/lib/prisma';
 import { accessibleSupportWhere } from '@/lib/support-access';
 
@@ -29,21 +29,14 @@ export default async function SupportPage({ searchParams }: { searchParams: Sear
   else if (Object.values(SupportRequestStatus).includes(status as SupportRequestStatus)) requestWhere.status = status as SupportRequestStatus;
 
   const [startups, requests, programPeople, openCount, urgentCount] = await Promise.all([
-    prisma.startup.findMany({ where: startupScope, orderBy: { name: 'asc' }, select: { id: true, name: true, founder: { select: { id: true, name: true, role: true } }, memberships: { where: { isActive: true, person: { isActive: true } }, select: { personId: true, role: true, person: { select: { id: true, name: true, role: true } } } }, assignments: { where: { person: { isActive: true } }, select: { person: { select: { id: true, name: true, role: true } } } } } }),
+    prisma.startup.findMany({ where: startupScope, orderBy: { name: 'asc' }, select: { id: true, name: true, memberships: { where: { isActive: true, person: { isActive: true } }, select: { personId: true, role: true } } } }),
     prisma.supportRequest.findMany({ where: requestWhere, orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }], take: 100, include: { startup: { select: { id: true, name: true } }, requestedBy: { select: { id: true, name: true, role: true } }, assignedTo: { select: { id: true, name: true } }, participants: { include: { person: { select: { id: true, name: true, role: true } } }, orderBy: { person: { name: 'asc' } } }, messages: { orderBy: { createdAt: 'asc' }, take: 100, include: { author: { select: { name: true, role: true } } } } } }),
-    prisma.person.findMany({ where: { isActive: true, role: { in: [Role.PROGRAM_LEAD, Role.PROGRAM_TEAM] } }, orderBy: { name: 'asc' }, select: { id: true, name: true, role: true } }),
+    prisma.person.findMany({ where: { isActive: true, role: { in: ticketParticipantRoles } }, orderBy: { name: 'asc' }, select: { id: true, name: true, role: true } }),
     prisma.supportRequest.count({ where: { ...accessibleSupportWhere(auth.user), status: { in: OPEN_STATUSES } } }),
     prisma.supportRequest.count({ where: { ...accessibleSupportWhere(auth.user), status: { in: OPEN_STATUSES }, priority: Priority.HIGH } }),
   ]);
 
-  const startupOptions = startups.map((startup) => {
-    const people = new Map<string, { id: string; name: string; role: string }>();
-    for (const person of programPeople) people.set(person.id, person);
-    if (startup.founder) people.set(startup.founder.id, startup.founder);
-    for (const membership of startup.memberships) people.set(membership.person.id, membership.person);
-    for (const assignment of startup.assignments) people.set(assignment.person.id, assignment.person);
-    return { id: startup.id, name: startup.name, people: [...people.values()] };
-  });
+  const startupOptions = startups.map((startup) => ({ id: startup.id, name: startup.name, people: programPeople }));
   const createOptions = startupOptions.filter((startup) => {
     if (auth.user.role !== Role.FOUNDER) return canCreateByRole;
     const source = startups.find((item) => item.id === startup.id);
@@ -52,7 +45,7 @@ export default async function SupportPage({ searchParams }: { searchParams: Sear
   });
 
   return <div className="mx-auto w-full max-w-[1350px] p-4 sm:p-6 lg:p-8">
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><div className="text-xs font-semibold uppercase tracking-[.12em] text-prise-primary">Private program help</div><h1 className="mt-1 text-2xl font-bold tracking-tight">Tickets</h1><p className="mt-1.5 text-sm text-prise-text-secondary">Raise a private request, discuss it with the right program people, and record the resolution.</p></div><Link href="/work" className="inline-flex h-11 items-center justify-center gap-2 rounded-button border bg-white px-4 text-sm font-semibold text-prise-primary"><UsersRound size={17} />Open execution work</Link></div>
+    <div><div className="text-xs font-semibold uppercase tracking-[.12em] text-prise-primary">Private program help</div><h1 className="mt-1 text-2xl font-bold tracking-tight">Tickets</h1><p className="mt-1.5 text-sm text-prise-text-secondary">Raise a private request, discuss it with the right program people, and record the resolution.</p></div>
     <div className="mt-6 grid gap-3 sm:grid-cols-2"><Metric value={openCount} label="Open conversations" /><Metric value={urgentCount} label="High priority" danger={urgentCount > 0} /></div>
     {createOptions.length ? <details className="mt-5 rounded-card border bg-white p-5 shadow-card"><summary className="cursor-pointer list-none font-semibold text-prise-primary">+ Raise ticket</summary><div className="mt-5"><SupportCreateForm startups={createOptions} /></div></details> : null}
     <div className="mt-5 flex gap-2 overflow-x-auto pb-1">{Object.values(SupportRequestStatus).map((value) => <Link key={value} href={`/tickets?status=${value}`} className={`whitespace-nowrap rounded-pill px-3 py-2 text-xs font-semibold ${status === value ? 'bg-prise-sidebar text-white' : 'border bg-white text-prise-text-secondary'}`}>{value.replaceAll('_', ' ').toLowerCase()}</Link>)}</div>

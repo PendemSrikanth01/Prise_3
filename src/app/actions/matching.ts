@@ -7,7 +7,7 @@ import { auditData } from '@/lib/audit';
 import { hasPermission, isProgramRole, requireSession, resolveFounderStartupId } from '@/lib/auth';
 import { optionalText, requiredText } from '@/lib/form';
 import { prisma } from '@/lib/prisma';
-import { assertAllocationCandidates, normalizeAllocationIds, normalizeMatchingPreferenceIds } from '@/lib/matching';
+import { assertAllocationCandidates, canSelectCoreMentor, normalizeAllocationIds, normalizeMatchingPreferenceIds } from '@/lib/matching';
 import { coreMentorNotificationRows, mentorMappingNotificationRows } from '@/lib/in-app-notifications';
 import { queueTemplatedNotification } from '@/lib/notification-automation';
 import { priseTeamEmails } from '@/lib/prise-team';
@@ -317,9 +317,8 @@ export async function selectCoreMentorAction(formData: FormData) {
   const startupId = requiredText(formData, 'startupId', 64);
   const mentorId = requiredText(formData, 'mentorId', 64);
   const includePriseTeam = formData.get('includePriseTeam') === 'on';
-  if (!isProgramRole(session.user.role)) {
-    if (session.user.role !== Role.FOUNDER || await resolveFounderStartupId(session.user) !== startupId) throw new Error('Forbidden');
-  }
+  const founderStartupId = session.user.role === Role.FOUNDER ? await resolveFounderStartupId(session.user) : null;
+  if (!canSelectCoreMentor(session.user.role, founderStartupId, startupId)) throw new Error('Only the incubatee can choose the Core Mentor.');
 
   const assignment = await prisma.startupAssignment.findFirstOrThrow({
     where: { startupId, personId: mentorId, role: AssignmentRole.MENTOR, person: { isActive: true, role: Role.MENTOR } },

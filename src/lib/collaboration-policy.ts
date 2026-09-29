@@ -1,5 +1,11 @@
 import { Role, SupportAudience } from '@prisma/client';
 
+export const ticketParticipantRoles: Role[] = [Role.PROGRAM_LEAD, Role.PROGRAM_TEAM];
+
+export function isTicketParticipantRole(role: Role) {
+  return ticketParticipantRoles.includes(role);
+}
+
 export function canAccessSupportThread(input: {
   role: Role;
   audience: SupportAudience;

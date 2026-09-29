@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Role, SupportAudience } from '@prisma/client';
-import { canAccessSupportThread, canDeleteSupportRequest } from '../src/lib/collaboration-policy';
+import { canAccessSupportThread, canDeleteSupportRequest, isTicketParticipantRole } from '../src/lib/collaboration-policy';
 
 const base = {
   role: Role.MENTOR,
@@ -34,4 +34,12 @@ test('requesters and selected participants retain access while deletion stays pr
   assert.equal(canDeleteSupportRequest(Role.PROGRAM_TEAM), true);
   assert.equal(canDeleteSupportRequest(Role.MENTOR), false);
   assert.equal(canDeleteSupportRequest(Role.FOUNDER), false);
+});
+
+test('ticket participant selection is limited to active program-role candidates', () => {
+  assert.equal(isTicketParticipantRole(Role.PROGRAM_LEAD), true);
+  assert.equal(isTicketParticipantRole(Role.PROGRAM_TEAM), true);
+  assert.equal(isTicketParticipantRole(Role.FOUNDER), false);
+  assert.equal(isTicketParticipantRole(Role.MENTOR), false);
+  assert.equal(isTicketParticipantRole(Role.EXPERT), false);
 });

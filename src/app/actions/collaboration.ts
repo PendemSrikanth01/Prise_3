@@ -1,9 +1,9 @@
 'use server';
 
-import { Role, SupportAudience } from '@prisma/client';
+import { SupportAudience } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { auditData } from '@/lib/audit';
-import { canAccessSupportThread } from '@/lib/collaboration-policy';
+import { canAccessSupportThread, ticketParticipantRoles } from '@/lib/collaboration-policy';
 import { enumValue, requiredText } from '@/lib/form';
 import { isProgramRole, requireSession, requireStartupAccess } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
@@ -80,16 +80,11 @@ export async function updateSupportAudienceAction(formData: FormData) {
     where: {
       id: { in: requestedIds },
       isActive: true,
-      OR: [
-        { role: { in: [Role.PROGRAM_LEAD, Role.PROGRAM_TEAM] } },
-        { founderOfStartupId: request.startupId },
-        { startupMemberships: { some: { startupId: request.startupId, isActive: true } } },
-        { assignments: { some: { startupId: request.startupId } } },
-      ],
+      role: { in: ticketParticipantRoles },
     },
     select: { id: true },
   }) : [];
-  if (eligible.length !== requestedIds.length) throw new Error('One or more selected people do not belong to this startup workspace.');
+  if (eligible.length !== requestedIds.length) throw new Error('Tickets can include only active Program Lead and Program Team accounts.');
   const participantIds = new Set(eligible.map((person) => person.id));
   if (request.requestedById) participantIds.add(request.requestedById);
   if (audience === SupportAudience.SELECTED_PEOPLE && participantIds.size < 2) throw new Error('Select at least one other participant.');
