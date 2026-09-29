@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   BarChart3, Bell, Building2, CalendarDays, CalendarRange, LayoutDashboard,
-  FileText, GraduationCap, IndianRupee, LifeBuoy, ListChecks, LogOut, MessageCircle, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Star, UserRoundCog, Users, X,
+  FileText, GraduationCap, IndianRupee, LifeBuoy, ListChecks, LogOut, MessageCircle, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserRoundCog, Users, X,
   type LucideIcon,
 } from 'lucide-react';
 import { logoutAction } from '@/app/actions/auth';
@@ -17,8 +17,7 @@ type NavSection = { label?: string; items: NavItem[] };
 const PROGRAM_NAV: NavSection[] = [
   { label: 'Workspace', items: [
     { href: '/', label: 'Home', icon: LayoutDashboard },
-    { href: '/startups', label: 'Startups', icon: Building2 },
-    { href: '/work', label: 'Tasks', icon: ListChecks },
+    { href: '/startups', label: 'Startup 360', icon: Building2 },
     { href: '/calendar', label: 'Calendar', icon: CalendarDays },
     { href: '/messages', label: 'Messages', icon: MessageCircle },
     { href: '/tickets', label: 'Tickets', icon: LifeBuoy },
@@ -28,7 +27,7 @@ const PROGRAM_NAV: NavSection[] = [
     { href: '/directory', label: 'Directory', icon: Users },
     { href: '/mapping', label: 'Mentor mapping', icon: UserRoundCog },
     { href: '/mentors', label: 'Mentors', icon: GraduationCap },
-    { href: '/program', label: 'Program', icon: CalendarRange },
+    { href: '/program', label: 'Program Operations', icon: CalendarRange },
     { href: '/insights', label: 'Dashboard', icon: BarChart3 },
     { href: '/notifications', label: 'Notifications', icon: Bell },
   ] },
@@ -38,12 +37,10 @@ const MENTOR_NAV: NavSection[] = [{ items: [
   { href: '/', label: 'Overview', icon: LayoutDashboard },
   { href: '/mentor-profile', label: 'My Profile', icon: UserRoundCog },
   { href: '/startups', label: 'My Startups', icon: Building2 },
-  { href: '/messages', label: 'Messages', icon: MessageCircle },
-  { href: '/work', label: 'Tasks', icon: ListChecks },
-  { href: '/directory', label: 'Directory', icon: Users },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
+  { href: '/messages', label: 'Messages', icon: MessageCircle },
+  { href: '/directory', label: 'Directory', icon: Users },
   { href: '/tickets', label: 'Tickets', icon: LifeBuoy },
-  { href: '/reviews', label: 'Reviews', icon: Star },
   { href: '/resources', label: 'Resources', icon: FileText },
 ] }];
 
@@ -51,11 +48,9 @@ const FOUNDER_NAV: NavSection[] = [{ items: [
   { href: '/', label: 'Overview', icon: LayoutDashboard },
   { href: '/my-startup', label: 'My Startup', icon: Building2 },
   { href: '/my-mentors', label: 'My Mentors', icon: GraduationCap },
-  { href: '/messages', label: 'Messages', icon: MessageCircle },
-  { href: '/work', label: 'Tasks', icon: ListChecks },
-  { href: '/resources', label: 'Resources', icon: FileText },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
   { href: '/tickets', label: 'Tickets', icon: LifeBuoy },
+  { href: '/resources', label: 'Resources', icon: FileText },
   { href: '/directory', label: 'Directory', icon: Users },
   { href: '/payments', label: 'Payments', icon: IndianRupee },
 ] }];

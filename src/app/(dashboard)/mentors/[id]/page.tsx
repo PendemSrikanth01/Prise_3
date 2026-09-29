@@ -1,7 +1,8 @@
 import { Role } from '@prisma/client';
 import { notFound } from 'next/navigation';
 import { MentorProfileEditor } from '@/components/mentors/MentorProfileEditor';
-import { requireSession } from '@/lib/auth';
+import { isProgramRole, requireSession } from '@/lib/auth';
+import { mentorCoordinationAndEngagement } from '@/lib/mentor-coordination';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -22,6 +23,7 @@ export default async function ProgramMentorProfilePage({ params }: { params: Pro
     },
   });
   if (!mentor) notFound();
-  const canEdit = auth.user.role === Role.PROGRAM_LEAD || auth.user.role === Role.PROGRAM_TEAM || auth.user.id === mentor.id;
-  return <MentorProfileEditor mentor={mentor} canEdit={canEdit} />;
+  const canViewCoordination = auth.user.id === mentor.id || isProgramRole(auth.user.role);
+  const coordinationData = canViewCoordination ? await mentorCoordinationAndEngagement(mentor.id) : null;
+  return <MentorProfileEditor mentor={mentor} canEdit={canViewCoordination} coordination={coordinationData?.coordination} engagement={coordinationData?.engagement} />;
 }

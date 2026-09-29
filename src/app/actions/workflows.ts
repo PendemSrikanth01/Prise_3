@@ -16,7 +16,7 @@ import { validPassword } from '@/lib/password';
 import { supportOpportunityTemplate } from '@/lib/notification-templates';
 import { queueTemplatedNotification } from '@/lib/notification-automation';
 import { setMilestoneLaneState } from '@/lib/milestone-state';
-import { canDeleteSupportRequest } from '@/lib/collaboration-policy';
+import { canDeleteSupportRequest, ticketParticipantRoles } from '@/lib/collaboration-policy';
 import { clearInactivePersonData } from '@/lib/person-deactivation';
 import { removePrivateUpload } from '@/lib/uploads';
 
@@ -379,10 +379,10 @@ export async function createSupportAction(formData: FormData) {
   const audience = enumValue(SupportAudience, formData.get('audience') ?? SupportAudience.STARTUP_AND_MENTORS, 'audience');
   const requestedParticipantIds = [...new Set(formData.getAll('participantId').filter((value): value is string => typeof value === 'string'))];
   const eligibleParticipants = requestedParticipantIds.length ? await prisma.person.findMany({
-    where: { id: { in: requestedParticipantIds }, isActive: true, OR: [{ role: { in: [Role.PROGRAM_LEAD, Role.PROGRAM_TEAM] } }, { founderOfStartupId: startupId }, { startupMemberships: { some: { startupId, isActive: true } } }, { assignments: { some: { startupId } } }] },
+    where: { id: { in: requestedParticipantIds }, isActive: true, role: { in: ticketParticipantRoles } },
     select: { id: true },
   }) : [];
-  if (eligibleParticipants.length !== requestedParticipantIds.length) throw new Error('One or more selected people do not belong to this startup workspace.');
+  if (eligibleParticipants.length !== requestedParticipantIds.length) throw new Error('Tickets can include only active Program Lead and Program Team accounts.');
   const participantIds = new Set(eligibleParticipants.map((person) => person.id));
   participantIds.add(session.user.id);
   if (audience === SupportAudience.SELECTED_PEOPLE && participantIds.size < 2) throw new Error('Select at least one person for this conversation.');
@@ -420,8 +420,8 @@ export async function updateSupportAction(formData: FormData) {
   const programManager = isProgramRole(session.user.role);
   const requestedAssigneeId = programManager ? optionalText(formData, 'assignedToId', 64) : request.assignedToId;
   if (programManager && requestedAssigneeId) {
-    const validAssignee = await prisma.person.count({ where: { id: requestedAssigneeId, isActive: true, OR: [{ role: { in: [Role.PROGRAM_LEAD, Role.PROGRAM_TEAM] } }, { assignments: { some: { startupId: request.startupId } } }] } });
-    if (!validAssignee) throw new Error('Support owner must belong to this startup workspace.');
+    const validAssignee = await prisma.person.count({ where: { id: requestedAssigneeId, isActive: true, role: { in: ticketParticipantRoles } } });
+    if (!validAssignee) throw new Error('Support owner must be an active Program Lead or Program Team account.');
   }
   await prisma.$transaction(async (tx) => {
     await tx.supportRequest.update({ where: { id: requestId }, data: { status, assignedToId: requestedAssigneeId, outcome: optionalText(formData, 'outcome', 2000), dueDate: programManager ? optionalDate(formData, 'dueDate') : request.dueDate, resolvedAt: status === SupportRequestStatus.RESOLVED ? request.resolvedAt ?? new Date() : null } });

@@ -6,7 +6,7 @@ import { notFound } from 'next/navigation';
 import { requireSession, resolveFounderStartupId } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { selectCoreMentorAction } from '@/app/actions/matching';
-import { SubmitButton } from '@/components/ui/FormButtons';
+import { ConfirmButton } from '@/components/ui/FormButtons';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,13 +35,16 @@ export default async function MyMentorsPage() {
     },
   });
   if (!startup) notFound();
+  const currentCoreMentor = startup.assignments.find((assignment) => assignment.isCoreMentor)?.person;
 
   return <div className="mx-auto w-full max-w-6xl p-4 sm:p-6 lg:p-8">
     <div>
       <div className="text-xs font-semibold uppercase tracking-[.12em] text-prise-primary">Confirmed assignments</div>
       <h1 className="mt-1 text-2xl font-bold tracking-tight">My Mentors</h1>
-      <p className="mt-1.5 text-sm text-prise-text-secondary">Mentors confirmed by the PrISE program team for {startup.name}. Contact them to coordinate your mentoring work and first meeting.</p>
+      <p className="mt-1.5 text-sm text-prise-text-secondary">Mentors confirmed by the PrISE program team for {startup.name}. Choose exactly one Core Mentor, then contact your mentors to coordinate the work and first meeting.</p>
     </div>
+
+    {startup.assignments.length && !currentCoreMentor ? <div className="mt-5 rounded-card border border-warning/30 bg-warning-bg p-4 text-sm text-warning"><strong>Core Mentor required.</strong> Select one of your confirmed mentors below. Only your incubatee account can make this choice.</div> : null}
 
     {startup.assignments.length ? <div className="mt-6 grid gap-5 md:grid-cols-2">{startup.assignments.map(({ isCoreMentor, person: mentor }) => {
       const emailSubject = encodeURIComponent(`PrISE 3.0 mentoring — ${startup.name}`);
@@ -67,7 +70,10 @@ export default async function MyMentorsPage() {
           <input type="hidden" name="startupId" value={startupId} />
           <input type="hidden" name="mentorId" value={mentor.id} />
           <label className="flex items-start gap-2 text-xs text-prise-text-secondary"><input name="includePriseTeam" type="checkbox" className="mt-0.5 accent-prise-primary" /><span>Keep the PrISE Team in CC on the confirmation email.</span></label>
-          <SubmitButton className="mt-3 !px-3 !py-2">Select as Core Mentor</SubmitButton>
+          <ConfirmButton
+            message={currentCoreMentor ? `Replace ${currentCoreMentor.name} with ${mentor.name} as the Core Mentor for ${startup.name}?` : `Select ${mentor.name} as the Core Mentor for ${startup.name}?`}
+            className="mt-3 !bg-prise-action !px-3 !py-2 !text-white hover:!bg-prise-action-hover"
+          >{currentCoreMentor ? 'Replace Core Mentor' : 'Select as Core Mentor'}</ConfirmButton>
         </form> : null}
 
         <div className="mt-auto flex flex-wrap gap-2 border-t pt-5">
