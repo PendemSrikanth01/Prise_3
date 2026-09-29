@@ -1,6 +1,6 @@
 'use server';
 
-import { AssignmentRole, MatchPreferenceSource, Role, StartupStatus } from '@prisma/client';
+import { AssignmentRole, MatchPreferenceSource, NotificationKind, NotificationTemplateKey, Role, StartupStatus } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'node:crypto';
 import { auditData } from '@/lib/audit';
@@ -8,7 +8,9 @@ import { hasPermission, isProgramRole, requireSession, resolveFounderStartupId }
 import { optionalText, requiredText } from '@/lib/form';
 import { prisma } from '@/lib/prisma';
 import { assertAllocationCandidates, normalizeAllocationIds, normalizeMatchingPreferenceIds } from '@/lib/matching';
-import { mentorMappingNotificationRows } from '@/lib/in-app-notifications';
+import { coreMentorNotificationRows, mentorMappingNotificationRows } from '@/lib/in-app-notifications';
+import { queueTemplatedNotification } from '@/lib/notification-automation';
+import { priseTeamEmails } from '@/lib/prise-team';
 import { deliverPushForEventPrefix } from '@/lib/push-notifications';
 
 export type MatchingFeedback = { status: 'idle' | 'success' | 'error'; message: string };
@@ -308,6 +310,81 @@ export async function saveMentorStartupAllocationsAction(_previous: MatchingFeed
   } catch (error) {
     return { status: 'error', message: message(error) };
   }
+}
+
+export async function selectCoreMentorAction(formData: FormData) {
+  const session = await requireSession();
+  const startupId = requiredText(formData, 'startupId', 64);
+  const mentorId = requiredText(formData, 'mentorId', 64);
+  const includePriseTeam = formData.get('includePriseTeam') === 'on';
+  if (!isProgramRole(session.user.role)) {
+    if (session.user.role !== Role.FOUNDER || await resolveFounderStartupId(session.user) !== startupId) throw new Error('Forbidden');
+  }
+
+  const assignment = await prisma.startupAssignment.findFirstOrThrow({
+    where: { startupId, personId: mentorId, role: AssignmentRole.MENTOR, person: { isActive: true, role: Role.MENTOR } },
+    select: {
+      id: true,
+      isCoreMentor: true,
+      person: { select: { id: true, name: true, email: true } },
+      startup: {
+        select: {
+          id: true,
+          name: true,
+          founder: { select: { id: true, name: true, email: true, isActive: true } },
+          memberships: { where: { isActive: true }, select: { person: { select: { id: true, name: true, email: true, isActive: true } } } },
+        },
+      },
+    },
+  });
+  if (assignment.isCoreMentor) return;
+
+  const changeId = randomUUID();
+  const startupRecipients = [assignment.startup.founder, ...assignment.startup.memberships.map(({ person }) => person)]
+    .filter((person): person is { id: string; name: string; email: string; isActive: true } => Boolean(person?.isActive));
+  const uniqueStartupRecipients = [...new Map(startupRecipients.map((person) => [person.id, person])).values()];
+  const notificationRows = coreMentorNotificationRows({ changeId, startup: assignment.startup, mentor: assignment.person, startupRecipients: uniqueStartupRecipients });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.startupAssignment.updateMany({ where: { startupId, role: AssignmentRole.MENTOR, isCoreMentor: true }, data: { isCoreMentor: false } });
+    await tx.startupAssignment.update({ where: { id: assignment.id }, data: { isCoreMentor: true } });
+    if (notificationRows.length) await tx.inAppNotification.createMany({ data: notificationRows });
+    await tx.activityLog.create({ data: auditData({
+      actor: session.user,
+      startupId,
+      entityType: 'StartupAssignment',
+      entityId: assignment.id,
+      action: 'core_mentor_selected',
+      summary: `${assignment.person.name} selected as Core Mentor for ${assignment.startup.name}`,
+    }) });
+  });
+
+  const emailRecipients = [...new Map([assignment.person, ...uniqueStartupRecipients].map((person) => [person.id, person])).values()];
+  const teamCc = includePriseTeam ? priseTeamEmails() : [];
+  await Promise.all(emailRecipients.map((recipient, index) => queueTemplatedNotification({
+    recipientId: recipient.id,
+    recipientEmail: recipient.email,
+    ccEmails: index === 0 ? teamCc : [],
+    kind: NotificationKind.CORE_MENTOR_SELECTED,
+    templateKey: NotificationTemplateKey.CORE_MENTOR_SELECTED,
+    variables: {
+      name: recipient.name,
+      mentorName: assignment.person.name,
+      startupName: assignment.startup.name,
+      mentorUrl: recipient.id === assignment.person.id
+        ? `${process.env.APP_URL || 'http://127.0.0.1:3010'}/startups/${startupId}`
+        : `${process.env.APP_URL || 'http://127.0.0.1:3010'}/my-mentors`,
+    },
+    relatedEntityType: 'StartupAssignment',
+    relatedEntityId: assignment.id,
+  })));
+  await deliverPushForEventPrefix(changeId);
+  revalidatePath('/my-mentors');
+  revalidatePath('/mapping');
+  revalidatePath(`/startups/${startupId}`);
+  revalidatePath('/notifications');
+  revalidatePath('/audit');
+  revalidatePath('/', 'layout');
 }
 
 export async function saveDeliveryAssignmentAction(formData: FormData) {

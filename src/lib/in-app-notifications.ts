@@ -90,3 +90,22 @@ export function mentorChatNotificationRows(input: {
     eventKey: `mentor-chat:${input.messageId}:${recipient.id}`,
   }));
 }
+
+export function coreMentorNotificationRows(input: {
+  changeId: string;
+  startup: StartupRef;
+  mentor: PersonRef;
+  startupRecipients: PersonRef[];
+}): Prisma.InAppNotificationCreateManyInput[] {
+  const recipients = [...new Map([input.mentor, ...input.startupRecipients].map((person) => [person.id, person])).values()];
+  return recipients.map((recipient) => ({
+    recipientId: recipient.id,
+    kind: InAppNotificationKind.CORE_MENTOR_SELECTED,
+    title: 'Core Mentor confirmed',
+    message: `${input.mentor.name} is now the Core Mentor for ${input.startup.name}.`,
+    href: recipient.id === input.mentor.id ? `/startups/${input.startup.id}` : '/my-mentors',
+    relatedEntityType: 'StartupAssignment',
+    relatedEntityId: input.startup.id,
+    eventKey: `${input.changeId}:core-mentor:${recipient.id}`,
+  }));
+}

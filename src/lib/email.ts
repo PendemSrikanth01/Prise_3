@@ -61,6 +61,7 @@ export async function sendQueuedNotification(notificationId: string) {
         from: process.env.MAIL_FROM,
         reply_to: process.env.MAIL_REPLY_TO || undefined,
         to: [notification.recipientEmail],
+        cc: notification.ccEmails.length ? notification.ccEmails : undefined,
         subject: notification.subject,
         html: notification.htmlBody,
         text: notification.textBody ?? undefined,

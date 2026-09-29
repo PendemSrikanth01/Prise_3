@@ -10,6 +10,7 @@ import { sendQueuedNotification } from '@/lib/email';
 import { enumValue, optionalDateTime, optionalText, requiredDateTime, requiredText } from '@/lib/form';
 import { hasPermission, isProgramRole, requirePermission, requireSession, requireStartupAccess } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { priseTeamEmails } from '@/lib/prise-team';
 import { queueTemplatedNotification } from '@/lib/notification-automation';
 import { googleConnectionForPerson, removeGoogleEventBeforeSessionDelete, syncNewSessionsToGoogle, syncUpdatedSessionToGoogle } from '@/lib/session-google-sync';
 import { validateSessionTimes } from '@/lib/calendar-time';
@@ -23,13 +24,13 @@ function refreshMentorWorkspace(startupId?: string | null) {
   if (startupId) revalidatePath(`/startups/${startupId}`);
 }
 
-async function queueSessionAutomation(session: { id: string; title: string; startsAt: Date; meetingUrl: string | null }, startupName: string, recipients: Array<{ id: string; name: string; email: string }>, includeInvite: boolean) {
+async function queueSessionAutomation(session: { id: string; title: string; startsAt: Date; meetingUrl: string | null }, startupName: string, recipients: Array<{ id: string; name: string; email: string }>, includeInvite: boolean, ccEmails: string[] = []) {
   const meetingDate = session.startsAt.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
   const meetingLink = session.meetingUrl || `${APP_URL()}/calendar`;
-  await Promise.all(recipients.flatMap((recipient) => {
+  await Promise.all(recipients.flatMap((recipient, index) => {
     const variables = { name: recipient.name, startupName, meetingTitle: session.title, meetingDate, meetingLink };
     return [
-      ...(includeInvite ? [queueTemplatedNotification({ recipientId: recipient.id, recipientEmail: recipient.email, kind: NotificationKind.SESSION_INVITE, templateKey: NotificationTemplateKey.SESSION_INVITE, variables, relatedEntityType: 'Session', relatedEntityId: session.id })] : []),
+      ...(includeInvite ? [queueTemplatedNotification({ recipientId: recipient.id, recipientEmail: recipient.email, ccEmails: index === 0 ? ccEmails : [], kind: NotificationKind.SESSION_INVITE, templateKey: NotificationTemplateKey.SESSION_INVITE, variables, relatedEntityType: 'Session', relatedEntityId: session.id })] : []),
       queueTemplatedNotification({ recipientId: recipient.id, recipientEmail: recipient.email, kind: NotificationKind.SESSION_REMINDER, templateKey: NotificationTemplateKey.SESSION_REMINDER, variables, relatedEntityType: 'Session', relatedEntityId: session.id, scheduledFor: new Date(session.startsAt.getTime() - 24 * 60 * 60 * 1000) }),
     ];
   }));
@@ -75,6 +76,8 @@ export async function createSessionAction(formData: FormData) {
   const participants = [...new Set([facilitator.id, startup.founder?.isActive ? startup.founder.id : null].filter((id): id is string => Boolean(id)))];
   const title = requiredText(formData, 'title', 180);
   const createGoogleMeet = formData.get('createGoogleMeet') === 'on';
+  const includePriseTeam = formData.get('includePriseTeam') === 'on';
+  const teamEmails = includePriseTeam ? priseTeamEmails() : [];
   const googleConnection = createGoogleMeet ? await googleConnectionForPerson(actor.user.id) : null;
   if (createGoogleMeet && !googleConnection) throw new Error('Connect Google Calendar before creating a Google Meet.');
   const meetingUrl = createGoogleMeet ? null : optionalText(formData, 'meetingUrl', 1000);
@@ -92,6 +95,7 @@ export async function createSessionAction(formData: FormData) {
         startsAt: occurrence.startsAt,
         endsAt: occurrence.endsAt,
         participantIds: participants,
+        externalAttendeeEmails: teamEmails,
         meetingProvider: googleConnection ? 'Google Meet' : optionalText(formData, 'meetingProvider', 80),
         meetingUrl,
         recurrenceGroupId: recurrence.groupId,
@@ -106,7 +110,7 @@ export async function createSessionAction(formData: FormData) {
   const scheduledSessions = googleConnection
     ? await prisma.session.findMany({ where: { id: { in: created.map(({ id }) => id) } }, orderBy: { startsAt: 'asc' } })
     : created;
-  await Promise.all(scheduledSessions.map((scheduledSession, index) => queueSessionAutomation(scheduledSession, startup.name, recipients, index === 0)));
+  await Promise.all(scheduledSessions.map((scheduledSession, index) => queueSessionAutomation(scheduledSession, startup.name, recipients, index === 0, teamEmails)));
   refreshMentorWorkspace(startupId);
 }
 
@@ -116,6 +120,9 @@ export async function updateSessionAction(formData: FormData) {
   const actor = existing.startupId
     ? await requireStartupAccess(existing.startupId, 'session:manage')
     : await requirePermission('webinar:manage');
+  if (actor.user.role === Role.MENTOR && existing.facilitatorId !== actor.user.id) {
+    throw new Error('Mentors can only update sessions they facilitate.');
+  }
   const startsAt = requiredDateTime(formData, 'startsAt');
   const endsAt = optionalDateTime(formData, 'endsAt');
   validateSessionTimes(startsAt, endsAt);
@@ -150,7 +157,7 @@ export async function updateSessionAction(formData: FormData) {
       prisma.person.findMany({ where: { id: { in: syncedUpdated.participantIds }, isActive: true }, select: { id: true, name: true, email: true } }),
     ]);
     const changed = existing.title !== syncedUpdated.title || existing.startsAt.getTime() !== syncedUpdated.startsAt.getTime() || existing.meetingUrl !== syncedUpdated.meetingUrl;
-    await queueSessionAutomation(syncedUpdated, startup.name, recipients, changed);
+    await queueSessionAutomation(syncedUpdated, startup.name, recipients, changed, syncedUpdated.externalAttendeeEmails);
   }
   refreshMentorWorkspace(syncedUpdated.startupId);
 }
@@ -161,6 +168,9 @@ export async function deleteSessionAction(formData: FormData) {
   const actor = existing.startupId
     ? await requireStartupAccess(existing.startupId, 'session:manage')
     : await requirePermission('webinar:manage');
+  if (actor.user.role === Role.MENTOR && existing.facilitatorId !== actor.user.id) {
+    throw new Error('Mentors can only delete sessions they facilitate.');
+  }
   if (existing.status === SessionStatus.COMPLETED) throw new Error('Completed sessions are retained as program evidence.');
   await removeGoogleEventBeforeSessionDelete(sessionId);
   await prisma.$transaction(async (tx) => {

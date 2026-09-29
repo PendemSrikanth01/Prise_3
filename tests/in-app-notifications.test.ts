@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { InAppNotificationKind } from '@prisma/client';
-import { mentorChatNotificationRows, mentorMappingNotificationRows } from '../src/lib/in-app-notifications';
+import { coreMentorNotificationRows, mentorChatNotificationRows, mentorMappingNotificationRows } from '../src/lib/in-app-notifications';
 
 test('mapping additions notify the mentor and each unique startup owner', () => {
   const rows = mentorMappingNotificationRows({
@@ -50,4 +50,16 @@ test('mentor chat notifies the opposite side without notifying the author twice'
   });
   assert.deepEqual(mentorRows.map(({ recipientId }) => recipientId).sort(), ['founder-1', 'member-1']);
   assert.equal(new Set(mentorRows.map(({ eventKey }) => eventKey)).size, 2);
+});
+
+test('core mentor selection notifies the selected mentor and unique startup recipients', () => {
+  const rows = coreMentorNotificationRows({
+    changeId: 'core-change',
+    startup: { id: 'startup-1', name: 'Sample Startup' },
+    mentor: { id: 'mentor-1', name: 'Mentor One' },
+    startupRecipients: [{ id: 'founder-1', name: 'Founder' }, { id: 'founder-1', name: 'Founder' }],
+  });
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every(({ kind }) => kind === InAppNotificationKind.CORE_MENTOR_SELECTED));
+  assert.equal(new Set(rows.map(({ eventKey }) => eventKey)).size, 2);
 });

@@ -16,6 +16,8 @@ export default async function ProgramMentorProfilePage({ params }: { params: Pro
       professionalDomain: true, mentorLocation: true, mentoringFrequency: true, linkedinUrl: true,
       expertiseAreas: true, preferredSectors: true, languages: true, maxStartupCapacity: true, acceptingMentees: true,
       yearsExperience: true, profilePhotoKey: true,
+      availabilityPublishedAt: true,
+      mentorAvailability: { where: { isActive: true }, orderBy: [{ dayOfWeek: 'asc' }, { startMinute: 'asc' }], select: { id: true, dayOfWeek: true, startMinute: true, endMinute: true, mode: true } },
       _count: { select: { assignments: { where: { role: 'MENTOR' } } } },
     },
   });

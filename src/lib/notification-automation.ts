@@ -11,6 +11,8 @@ const TEMPLATE_BY_KIND: Partial<Record<NotificationKind, NotificationTemplateKey
   TASK_REMINDER: NotificationTemplateKey.TASK_REMINDER,
   SESSION_INVITE: NotificationTemplateKey.SESSION_INVITE,
   SESSION_REMINDER: NotificationTemplateKey.SESSION_REMINDER,
+  MENTOR_AVAILABILITY_PUBLISHED: NotificationTemplateKey.MENTOR_AVAILABILITY_PUBLISHED,
+  CORE_MENTOR_SELECTED: NotificationTemplateKey.CORE_MENTOR_SELECTED,
 };
 
 export async function queueTemplatedNotification(input: {
@@ -22,6 +24,7 @@ export async function queueTemplatedNotification(input: {
   relatedEntityType?: string;
   relatedEntityId?: string;
   scheduledFor?: Date;
+  ccEmails?: string[];
 }) {
   const template = await renderNotificationTemplate(input.templateKey, input.variables);
   if (!template.isActive) return null;
@@ -30,6 +33,7 @@ export async function queueTemplatedNotification(input: {
     data: {
       recipientId: input.recipientId,
       recipientEmail: input.recipientEmail,
+      ccEmails: input.ccEmails ?? [],
       kind: input.kind,
       subject: template.subject,
       htmlBody: template.html,

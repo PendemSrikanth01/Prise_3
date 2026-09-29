@@ -15,15 +15,20 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const canManageSessions = hasPermission(auth.user.role, 'session:manage');
   const canManageWebinars = hasPermission(auth.user.role, 'webinar:manage');
   const googleConfigured = googleCalendarConfigured();
+  const calendarScope = isProgram
+    ? {}
+    : auth.user.role === Role.MENTOR
+      ? { facilitatorId: auth.user.id }
+      : {
+          OR: [
+            { isCohortWide: true, type: SessionType.WORKSHOP },
+            { participantIds: { has: auth.user.id } },
+            { startup: startupScope },
+          ],
+        };
   const [sessions, startups, facilitators, googleConnection] = await Promise.all([
     prisma.session.findMany({
-      where: isProgram ? {} : {
-        OR: [
-          { isCohortWide: true, type: SessionType.WORKSHOP },
-          { participantIds: { has: auth.user.id } },
-          { startup: startupScope },
-        ],
-      },
+      where: calendarScope,
       include: { startup: { select: { name: true } }, facilitator: { select: { name: true } }, attendance: { where: { startup: startupScope }, include: { startup: { select: { name: true } } }, orderBy: { startup: { name: 'asc' } } } },
       orderBy: { startsAt: 'asc' },
       take: 500,

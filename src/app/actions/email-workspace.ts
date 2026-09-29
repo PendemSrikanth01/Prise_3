@@ -8,6 +8,7 @@ import { emailDeliveryConfigured, renderOrganizationEmail, sendQueuedEmailMessag
 import { optionalDateTime, requiredText, text } from '@/lib/form';
 import { requirePermission } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { priseTeamEmails } from '@/lib/prise-team';
 import { removePrivateUpload, storePrivateUpload } from '@/lib/uploads';
 
 export type EmailWorkspaceState = { error?: string; success?: string } | undefined;
@@ -32,7 +33,7 @@ export async function composeEmailAction(_: EmailWorkspaceState, formData: FormD
     });
     const recipients = normalizeRecipients({
       to: [...people.map(({ email }) => email), text(formData, 'toEmails', 5000)],
-      cc: [text(formData, 'ccEmails', 5000)],
+      cc: [text(formData, 'ccEmails', 5000), ...(formData.get('includePriseTeam') === 'on' ? priseTeamEmails() : [])],
       bcc: [text(formData, 'bccEmails', 5000)],
     });
     const subject = requiredText(formData, 'subject', 240);
