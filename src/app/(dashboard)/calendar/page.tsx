@@ -33,7 +33,23 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
       orderBy: { startsAt: 'asc' },
       take: 500,
     }),
-    prisma.startup.findMany({ where: startupScope, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
+    prisma.startup.findMany({
+      where: startupScope,
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        founder: { select: { id: true, name: true, role: true } },
+        memberships: {
+          where: { isActive: true, person: { isActive: true } },
+          select: { role: true, person: { select: { id: true, name: true, role: true } } },
+        },
+        assignments: {
+          where: { person: { isActive: true } },
+          select: { role: true, person: { select: { id: true, name: true, role: true } } },
+        },
+      },
+    }),
     isProgram
       ? prisma.person.findMany({ where: { isActive: true, role: { in: [Role.MENTOR, Role.PROGRAM_LEAD, Role.PROGRAM_TEAM, Role.EXPERT] } }, orderBy: { name: 'asc' }, select: { id: true, name: true, role: true } })
       : Promise.resolve([]),
@@ -42,6 +58,17 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
       : Promise.resolve(null),
   ]);
   const googleStatus = (await searchParams).google;
+  const startupParticipants = startups.map((startup) => {
+    const people = new Map<string, { id: string; name: string; role: string; defaultSelected: boolean }>();
+    if (startup.founder) people.set(startup.founder.id, { id: startup.founder.id, name: startup.founder.name, role: 'Founder', defaultSelected: true });
+    for (const membership of startup.memberships) {
+      people.set(membership.person.id, { id: membership.person.id, name: membership.person.name, role: membership.role.replaceAll('_', ' ').toLowerCase(), defaultSelected: true });
+    }
+    for (const assignment of startup.assignments) {
+      if (!people.has(assignment.person.id)) people.set(assignment.person.id, { id: assignment.person.id, name: assignment.person.name, role: assignment.role.replaceAll('_', ' ').toLowerCase(), defaultSelected: false });
+    }
+    return { startupId: startup.id, people: [...people.values()].sort((a, b) => a.name.localeCompare(b.name)) };
+  });
 
   return <CalendarView
     events={sessions.map((session) => ({
@@ -67,7 +94,8 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
       facilitatorName: session.facilitator?.name ?? null,
       attendance: session.attendance,
     }))}
-    startups={startups}
+    startups={startups.map(({ id, name }) => ({ id, name }))}
+    startupParticipants={startupParticipants}
     facilitators={facilitators}
     canManageSessions={canManageSessions}
     canManageWebinars={canManageWebinars}

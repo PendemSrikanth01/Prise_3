@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: "A milestone-driven coordination workspace for the PRISE 3.0 cohort.",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "PrISE 3.0" },
-  icons: { icon: "/pwa-icon.svg", apple: "/pwa-icon.svg" },
+  icons: { icon: [{ url: "/pwa-icon.svg", type: "image/svg+xml" }, { url: "/pwa-icon-192.png", sizes: "192x192", type: "image/png" }], apple: "/pwa-icon-192.png" },
 };
 
 export const viewport: Viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover', themeColor: '#397c98' };

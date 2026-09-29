@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { Bell, CheckCheck, Menu, Search, UserRound } from 'lucide-react';
-import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { markAllInAppNotificationsReadAction, markInAppNotificationReadAction } from '@/app/actions/in-app-notifications';
 import { PriseWordmark } from '@/components/brand/BrandIdentity';
 import { PwaControls } from '@/components/pwa/PwaControls';
@@ -11,6 +12,36 @@ type NotificationItem = { id: string; title: string; message: string; href: stri
 
 export function TopBar({ onMenu, mobileOpen, userName, notifications, unreadCount, pushPublicKey }: { onMenu: () => void; mobileOpen: boolean; userName: string; notifications: NotificationItem[]; unreadCount: number; pushPublicKey: string }) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [refreshing, startRefresh] = useTransition();
+  const lastRefreshAt = useRef(0);
+  const router = useRouter();
+
+  const refreshWorkspace = useCallback((force = false) => {
+    const now = Date.now();
+    if (!force && now - lastRefreshAt.current < 30_000) return;
+    lastRefreshAt.current = now;
+    startRefresh(() => router.refresh());
+  }, [router]);
+
+  useEffect(() => {
+    const onFocus = () => refreshWorkspace();
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshWorkspace(); };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [refreshWorkspace]);
+
+  function toggleNotifications() {
+    const opening = !notificationsOpen;
+    setNotificationsOpen(opening);
+    if (opening) refreshWorkspace(true);
+  }
+
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-white/20 bg-[linear-gradient(135deg,rgb(37_104_130/96%),rgb(57_124_152/92%))] px-4 text-white shadow-[0_8px_28px_rgb(23_79_101/15%)] backdrop-blur-2xl sm:px-6">
       <div className="flex items-center gap-3">
@@ -42,8 +73,8 @@ export function TopBar({ onMenu, mobileOpen, userName, notifications, unreadCoun
         <div className="hidden h-9 w-9 items-center justify-center rounded-full bg-white/14 text-white sm:flex"><UserRound size={18} /></div>
         <PwaControls publicKey={pushPublicKey} />
         <div className="relative">
-          <button type="button" onClick={() => setNotificationsOpen((open) => !open)} className="relative rounded-full p-2 text-white/85 transition hover:bg-white/10" aria-label={`${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}`} aria-expanded={notificationsOpen}>
-            <Bell size={18} />
+          <button type="button" onClick={toggleNotifications} className="relative rounded-full p-2 text-white/85 transition hover:bg-white/10" aria-label={`${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}`} aria-expanded={notificationsOpen} aria-busy={refreshing}>
+            <Bell size={18} className={refreshing ? 'animate-pulse' : ''} />
             {unreadCount > 0 ? <span className="absolute -right-0.5 -top-0.5 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-prise-action px-1 text-[10px] font-bold text-white">{unreadCount > 99 ? '99+' : unreadCount}</span> : null}
           </button>
           {notificationsOpen ? <div className="absolute right-0 top-12 z-50 w-[min(92vw,380px)] overflow-hidden rounded-2xl border border-prise-border bg-white text-prise-text shadow-2xl">
