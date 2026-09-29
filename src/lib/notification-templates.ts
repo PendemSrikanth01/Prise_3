@@ -41,12 +41,26 @@ export const NOTIFICATION_TEMPLATE_DEFAULTS: Record<NotificationTemplateKey, {
     body: 'Hi {{name}},\n\n{{meetingTitle}} with {{startupName}} starts at {{meetingDate}}.\n\nJoin or view meeting: {{meetingLink}}',
     variables: ['name', 'startupName', 'meetingTitle', 'meetingDate', 'meetingLink'],
   },
+  MENTOR_AVAILABILITY_PUBLISHED: {
+    name: 'Mentor availability published',
+    subject: '{{mentorName}} published mentoring availability',
+    body: 'Hi {{name}},\n\n{{mentorName}}, mentor for {{startupName}}, has published updated availability.\n\nAvailability: {{availabilitySummary}}\n\nReview and coordinate the next session: {{calendarUrl}}',
+    variables: ['name', 'mentorName', 'startupName', 'availabilitySummary', 'calendarUrl'],
+  },
+  CORE_MENTOR_SELECTED: {
+    name: 'Core mentor selected',
+    subject: 'Core Mentor confirmed for {{startupName}}',
+    body: 'Hi {{name}},\n\n{{mentorName}} has been selected as the Core Mentor for {{startupName}}. Other confirmed mentor assignments remain active.\n\nOpen PrISE: {{mentorUrl}}',
+    variables: ['name', 'mentorName', 'startupName', 'mentorUrl'],
+  },
 };
 
 export function sampleTemplateVariables(key: NotificationTemplateKey): TemplateVariables {
   const common = { name: 'Ananya', startupName: 'Sample Startup', appUrl: `${process.env.APP_URL || 'https://prise.bvcsrb.org'}/work` };
   if (key === NotificationTemplateKey.ACCOUNT_WELCOME) return { name: common.name, role: 'incubatee', appUrl: `${process.env.APP_URL || 'https://prise.bvcsrb.org'}/login` };
   if (key === NotificationTemplateKey.TASK_ASSIGNED || key === NotificationTemplateKey.TASK_REMINDER) return { ...common, taskTitle: 'Submit customer validation summary', dueDate: '3 Sep 2026' };
+  if (key === NotificationTemplateKey.MENTOR_AVAILABILITY_PUBLISHED) return { ...common, mentorName: 'Siddharth', availabilitySummary: 'Monday, 10:00 am–12:00 pm', calendarUrl: `${process.env.APP_URL || 'https://prise.bvcsrb.org'}/calendar` };
+  if (key === NotificationTemplateKey.CORE_MENTOR_SELECTED) return { ...common, mentorName: 'Siddharth', mentorUrl: `${process.env.APP_URL || 'https://prise.bvcsrb.org'}/my-mentors` };
   return { ...common, meetingTitle: 'Weekly mentor review', meetingDate: '3 Sep 2026, 11:00 am', meetingLink: 'https://meet.google.com/example' };
 }
 

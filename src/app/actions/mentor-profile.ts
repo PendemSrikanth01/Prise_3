@@ -1,12 +1,16 @@
 'use server';
 
-import { MentorMeetingMode, Role } from '@prisma/client';
+import { InAppNotificationKind, MentorMeetingMode, NotificationKind, NotificationTemplateKey, Role } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
+import { randomUUID } from 'node:crypto';
 import { auditData } from '@/lib/audit';
 import { enumValue, optionalText, requiredText } from '@/lib/form';
 import { requireSession } from '@/lib/auth';
 import { canEditMentorProfile, parseTagList, parseYearsExperience, timeToMinute } from '@/lib/mentor-profile';
 import { prisma } from '@/lib/prisma';
+import { queueTemplatedNotification } from '@/lib/notification-automation';
+import { priseTeamEmails } from '@/lib/prise-team';
+import { deliverPushForEventPrefix } from '@/lib/push-notifications';
 import { removePrivateUpload, storePrivateUpload } from '@/lib/uploads';
 
 async function editableMentor(mentorId: string) {
@@ -21,6 +25,17 @@ function refreshMentorProfile(mentorId: string) {
   revalidatePath('/mentors');
   revalidatePath(`/mentors/${mentorId}`);
   revalidatePath('/mentor-profile');
+}
+
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function availabilityText(slots: Array<{ dayOfWeek: number; startMinute: number; endMinute: number; mode: MentorMeetingMode }>) {
+  const time = (minute: number) => {
+    const hour = Math.floor(minute / 60);
+    const value = hour % 12 || 12;
+    return `${value}:${String(minute % 60).padStart(2, '0')} ${hour >= 12 ? 'pm' : 'am'}`;
+  };
+  return slots.map((slot) => `${DAYS[slot.dayOfWeek]} ${time(slot.startMinute)}–${time(slot.endMinute)} (${slot.mode.toLowerCase()})`).join('; ');
 }
 
 export async function updateMentorProfileAction(formData: FormData) {
@@ -86,6 +101,7 @@ export async function addMentorAvailabilityAction(formData: FormData) {
       update: { mode, isActive: true },
       create: { mentorId, dayOfWeek, startMinute, endMinute, mode },
     });
+    await tx.person.update({ where: { id: mentorId }, data: { availabilityPublishedAt: null } });
     await tx.activityLog.create({ data: auditData({ actor: actor.user, entityType: 'MentorAvailability', entityId: slot.id, action: 'created', summary: `${mentor.name}: added recurring availability` }) });
   });
   refreshMentorProfile(mentorId);
@@ -98,6 +114,83 @@ export async function removeMentorAvailabilityAction(formData: FormData) {
   await prisma.$transaction(async (tx) => {
     await tx.activityLog.create({ data: auditData({ actor: actor.user, entityType: 'MentorAvailability', entityId: availabilityId, action: 'deleted', summary: `${slot.mentor.name}: removed recurring availability` }) });
     await tx.mentorAvailability.delete({ where: { id: availabilityId } });
+    await tx.person.update({ where: { id: slot.mentorId }, data: { availabilityPublishedAt: null } });
   });
   refreshMentorProfile(slot.mentorId);
+}
+
+export async function publishMentorAvailabilityAction(formData: FormData) {
+  const mentorId = requiredText(formData, 'mentorId', 64);
+  const includePriseTeam = formData.get('includePriseTeam') === 'on';
+  const { actor, mentor } = await editableMentor(mentorId);
+  const slots = await prisma.mentorAvailability.findMany({
+    where: { mentorId, isActive: true },
+    orderBy: [{ dayOfWeek: 'asc' }, { startMinute: 'asc' }],
+    select: { dayOfWeek: true, startMinute: true, endMinute: true, mode: true },
+  });
+  if (!slots.length) throw new Error('Add at least one availability window before publishing.');
+  const assignments = await prisma.startupAssignment.findMany({
+    where: { personId: mentorId, role: 'MENTOR' },
+    select: {
+      startup: {
+        select: {
+          id: true,
+          name: true,
+          founder: { select: { id: true, name: true, email: true, isActive: true } },
+          memberships: { where: { isActive: true }, select: { person: { select: { id: true, name: true, email: true, isActive: true } } } },
+        },
+      },
+    },
+  });
+  const publicationId = randomUUID();
+  const publishedAt = new Date();
+  const inAppRows = assignments.flatMap(({ startup }) => {
+    const recipients = [startup.founder, ...startup.memberships.map(({ person }) => person)]
+      .filter((person): person is NonNullable<typeof person> => Boolean(person?.isActive));
+    return [...new Map(recipients.map((person) => [person.id, person])).values()].map((recipient) => ({
+      recipientId: recipient.id,
+      kind: InAppNotificationKind.MENTOR_AVAILABILITY_PUBLISHED,
+      title: 'Mentor availability published',
+      message: `${mentor.name} published updated availability for ${startup.name}.`,
+      href: '/my-mentors',
+      relatedEntityType: 'Person',
+      relatedEntityId: mentorId,
+      eventKey: `${publicationId}:availability:${startup.id}:${recipient.id}`,
+    }));
+  });
+  await prisma.$transaction(async (tx) => {
+    await tx.person.update({ where: { id: mentorId }, data: { availabilityPublishedAt: publishedAt } });
+    if (inAppRows.length) await tx.inAppNotification.createMany({ data: inAppRows });
+    await tx.activityLog.create({ data: auditData({ actor: actor.user, entityType: 'Person', entityId: mentorId, action: 'mentor_availability_published', summary: `${mentor.name}: published mentoring availability to ${assignments.length} assigned startup(s)` }) });
+  });
+
+  const summary = availabilityText(slots);
+  const teamCc = includePriseTeam ? priseTeamEmails() : [];
+  await Promise.all(assignments.flatMap(({ startup }) => {
+    const recipients = [startup.founder, ...startup.memberships.map(({ person }) => person)]
+      .filter((person): person is NonNullable<typeof person> => Boolean(person?.isActive));
+    const unique = [...new Map(recipients.map((person) => [person.id, person])).values()];
+    return unique.map((recipient, index) => queueTemplatedNotification({
+      recipientId: recipient.id,
+      recipientEmail: recipient.email,
+      ccEmails: index === 0 ? teamCc : [],
+      kind: NotificationKind.MENTOR_AVAILABILITY_PUBLISHED,
+      templateKey: NotificationTemplateKey.MENTOR_AVAILABILITY_PUBLISHED,
+      variables: {
+        name: recipient.name,
+        mentorName: mentor.name,
+        startupName: startup.name,
+        availabilitySummary: summary,
+        calendarUrl: `${process.env.APP_URL || 'http://127.0.0.1:3010'}/calendar`,
+      },
+      relatedEntityType: 'Person',
+      relatedEntityId: mentorId,
+    }));
+  }));
+  await deliverPushForEventPrefix(publicationId);
+  refreshMentorProfile(mentorId);
+  revalidatePath('/my-mentors');
+  revalidatePath('/notifications');
+  revalidatePath('/audit');
+  revalidatePath('/', 'layout');
 }

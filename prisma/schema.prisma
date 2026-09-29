@@ -183,6 +183,8 @@ enum NotificationKind {
   SESSION_INVITE
   SESSION_REMINDER
   WEEKLY_PROGRESS
+  MENTOR_AVAILABILITY_PUBLISHED
+  CORE_MENTOR_SELECTED
   GENERAL
 }
 
@@ -192,6 +194,8 @@ enum NotificationTemplateKey {
   TASK_REMINDER
   SESSION_INVITE
   SESSION_REMINDER
+  MENTOR_AVAILABILITY_PUBLISHED
+  CORE_MENTOR_SELECTED
 }
 
 enum NotificationStatus {
@@ -206,6 +210,8 @@ enum InAppNotificationKind {
   MENTOR_MAPPING_ADDED
   MENTOR_MAPPING_REMOVED
   CHAT_MESSAGE
+  MENTOR_AVAILABILITY_PUBLISHED
+  CORE_MENTOR_SELECTED
 }
 
 enum DeliverableStatus {
@@ -271,34 +277,35 @@ enum MilestoneStakeholderState {
 // ---------------------------------------------------------------------------
 
 model Person {
-  id                   String            @id @default(cuid())
-  name                 String
-  email                String            @unique
-  phone                String?
-  role                 Role
-  isActive             Boolean           @default(true)
-  mustChangePassword   Boolean           @default(true)
-  lastLoginAt          DateTime?
-  passwordHash         String // Auth.js credentials provider — bcrypt hash
-  organization         String?
-  designation          String?
-  professionalBio      String?
-  professionalDomain   String?
-  mentorLocation       String?
-  mentoringFrequency   String?
-  linkedinUrl          String?
-  expertiseAreas       String[]          @default([])
-  preferredSectors     String[]          @default([])
-  languages            String[]          @default([])
-  yearsExperience      Int?
-  profilePhotoKey      String?
-  profilePhotoMimeType String?
-  maxStartupCapacity   Int               @default(4)
-  acceptingMentees     Boolean           @default(true)
-  preferredMeetingMode MentorMeetingMode @default(FLEXIBLE)
-  timezone             String            @default("Asia/Kolkata")
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
+  id                      String            @id @default(cuid())
+  name                    String
+  email                   String            @unique
+  phone                   String?
+  role                    Role
+  isActive                Boolean           @default(true)
+  mustChangePassword      Boolean           @default(true)
+  lastLoginAt             DateTime?
+  passwordHash            String // Auth.js credentials provider — bcrypt hash
+  organization            String?
+  designation             String?
+  professionalBio         String?
+  professionalDomain      String?
+  mentorLocation          String?
+  mentoringFrequency      String?
+  linkedinUrl             String?
+  expertiseAreas          String[]          @default([])
+  preferredSectors        String[]          @default([])
+  languages               String[]          @default([])
+  yearsExperience         Int?
+  profilePhotoKey         String?
+  profilePhotoMimeType    String?
+  maxStartupCapacity      Int               @default(4)
+  acceptingMentees        Boolean           @default(true)
+  preferredMeetingMode    MentorMeetingMode @default(FLEXIBLE)
+  timezone                String            @default("Asia/Kolkata")
+  availabilityPublishedAt DateTime?
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
 
   // Founder-only: the single startup this person represents
   founderOfStartupId String?  @unique
@@ -396,11 +403,12 @@ model LoginAttempt {
 // Many-to-many: a mentor/intern/expert can support multiple startups,
 // a startup can have multiple mentors/interns/experts.
 model StartupAssignment {
-  id        String         @id @default(cuid())
-  startupId String
-  personId  String
-  role      AssignmentRole
-  createdAt DateTime       @default(now())
+  id           String         @id @default(cuid())
+  startupId    String
+  personId     String
+  role         AssignmentRole
+  isCoreMentor Boolean        @default(false)
+  createdAt    DateTime       @default(now())
 
   startup Startup @relation(fields: [startupId], references: [id], onDelete: Cascade)
   person  Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
@@ -934,33 +942,34 @@ model SupportMessage {
 }
 
 model Session {
-  id                   String             @id @default(cuid())
-  startupId            String?
-  facilitatorId        String?
-  title                String
-  description          String?
-  type                 SessionType
-  status               SessionStatus      @default(SCHEDULED)
-  startsAt             DateTime
-  endsAt               DateTime?
-  participantIds       String[]
-  isCohortWide         Boolean            @default(false)
-  meetingProvider      String?
-  externalEventId      String?            @unique
-  meetingUrl           String?
-  calendarConnectionId String?
-  calendarSyncStatus   CalendarSyncStatus @default(NOT_CONNECTED)
-  calendarSyncError    String?
-  calendarSyncedAt     DateTime?
-  outcome              String?
-  nextActions          String?
-  insights             String?
-  learnings            String?
-  decisions            String?
-  followUpAt           DateTime?
-  recurrenceGroupId    String?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
+  id                     String             @id @default(cuid())
+  startupId              String?
+  facilitatorId          String?
+  title                  String
+  description            String?
+  type                   SessionType
+  status                 SessionStatus      @default(SCHEDULED)
+  startsAt               DateTime
+  endsAt                 DateTime?
+  participantIds         String[]
+  externalAttendeeEmails String[]           @default([])
+  isCohortWide           Boolean            @default(false)
+  meetingProvider        String?
+  externalEventId        String?            @unique
+  meetingUrl             String?
+  calendarConnectionId   String?
+  calendarSyncStatus     CalendarSyncStatus @default(NOT_CONNECTED)
+  calendarSyncError      String?
+  calendarSyncedAt       DateTime?
+  outcome                String?
+  nextActions            String?
+  insights               String?
+  learnings              String?
+  decisions              String?
+  followUpAt             DateTime?
+  recurrenceGroupId      String?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
 
   startup            Startup?                  @relation(fields: [startupId], references: [id], onDelete: Cascade)
   facilitator        Person?                   @relation("SessionFacilitator", fields: [facilitatorId], references: [id], onDelete: SetNull)
@@ -1014,6 +1023,7 @@ model Notification {
   id                String             @id @default(cuid())
   recipientId       String?
   recipientEmail    String
+  ccEmails          String[]           @default([])
   kind              NotificationKind
   status            NotificationStatus @default(PENDING)
   subject           String
@@ -1134,13 +1144,13 @@ model EmailMessage {
   attachmentMimeType   String?
   attachmentSizeBytes  Int?
   status               NotificationStatus @default(PENDING)
-  scheduledFor         DateTime            @default(now())
+  scheduledFor         DateTime           @default(now())
   sentAt               DateTime?
-  attempts             Int                 @default(0)
+  attempts             Int                @default(0)
   providerMessageId    String?
   lastError            String?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
   createdBy Person? @relation("EmailMessageCreator", fields: [createdById], references: [id], onDelete: SetNull)
 

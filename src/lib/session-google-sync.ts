@@ -25,7 +25,7 @@ export async function syncNewSessionsToGoogle(sessionIds: string[], connection: 
   for (const sessionId of sessionIds) {
     const session = await prisma.session.findUniqueOrThrow({ where: { id: sessionId } });
     try {
-      const result = await createGoogleMeetEvent(connection, { title: session.title, description: session.description, startsAt: session.startsAt, endsAt: session.endsAt, attendeeEmails: await attendeeEmails(session.participantIds, connection.googleAccountEmail) });
+      const result = await createGoogleMeetEvent(connection, { title: session.title, description: session.description, startsAt: session.startsAt, endsAt: session.endsAt, attendeeEmails: [...await attendeeEmails(session.participantIds, connection.googleAccountEmail), ...session.externalAttendeeEmails] });
       await prisma.session.update({ where: { id: session.id }, data: { calendarConnectionId: connection.id, externalEventId: result.externalEventId, meetingProvider: 'Google Meet', meetingUrl: result.meetingUrl, calendarSyncStatus: CalendarSyncStatus.SYNCED, calendarSyncError: null, calendarSyncedAt: new Date() } });
     } catch (error) {
       await syncError(session.id, connection.id, error);
@@ -43,7 +43,7 @@ export async function syncUpdatedSessionToGoogle(sessionId: string) {
       await prisma.session.update({ where: { id: session.id }, data: { externalEventId: null, meetingUrl: null, calendarSyncStatus: CalendarSyncStatus.SYNCED, calendarSyncError: null, calendarSyncedAt: new Date() } });
       return;
     }
-    const input = { title: session.title, description: session.description, startsAt: session.startsAt, endsAt: session.endsAt, attendeeEmails: await attendeeEmails(session.participantIds, connection.googleAccountEmail) };
+    const input = { title: session.title, description: session.description, startsAt: session.startsAt, endsAt: session.endsAt, attendeeEmails: [...await attendeeEmails(session.participantIds, connection.googleAccountEmail), ...session.externalAttendeeEmails] };
     if (session.externalEventId) {
       const result = await updateGoogleMeetEvent(connection, session.externalEventId, input);
       await prisma.session.update({ where: { id: session.id }, data: { ...(result.meetingUrl ? { meetingUrl: result.meetingUrl } : {}), calendarSyncStatus: CalendarSyncStatus.SYNCED, calendarSyncError: null, calendarSyncedAt: new Date() } });

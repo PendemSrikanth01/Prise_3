@@ -20,6 +20,8 @@ const groupLabel: Record<NotificationTemplateKey, string> = {
   TASK_REMINDER: 'Tasks',
   SESSION_INVITE: 'Meetings',
   SESSION_REMINDER: 'Meetings',
+  MENTOR_AVAILABILITY_PUBLISHED: 'Mentors',
+  CORE_MENTOR_SELECTED: 'Mentor mapping',
 };
 
 export function NotificationTemplateManager({ templates, testRecipient }: { templates: TemplateRow[]; testRecipient: string }) {

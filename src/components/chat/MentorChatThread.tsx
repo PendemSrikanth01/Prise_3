@@ -64,6 +64,7 @@ export function MentorChatThread({ messages, startupId, mentorId, currentUserId,
         <textarea name="body" required maxLength={3000} rows={2} aria-label="Message" placeholder="Write a message…" className="max-h-40 min-h-12 flex-1 resize-y rounded-input border bg-white px-3 py-3 text-base focus:border-prise-primary sm:text-sm" />
         <button disabled={pending} className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-button bg-prise-action px-4 text-sm font-semibold text-white hover:bg-prise-action-hover disabled:cursor-wait disabled:opacity-60"><Send size={17} /><span className="hidden sm:inline">{pending ? 'Sending…' : 'Send'}</span></button>
       </div>
+      <label className="mt-2 flex items-start gap-2 text-xs text-prise-text-secondary"><input name="notifyPriseTeam" type="checkbox" className="mt-0.5 accent-prise-primary" /><span>Notify the PrISE Team by email and keep this coordination visible in the outbox.</span></label>
       {state.status === 'error' ? <p role="alert" className="mt-2 text-sm font-semibold text-danger">{state.message}</p> : null}
     </form> : <div className="border-t bg-white p-4 text-sm text-prise-text-secondary">Program Team access is read-only for oversight and support.</div>}
   </>;

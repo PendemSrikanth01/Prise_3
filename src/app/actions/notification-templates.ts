@@ -15,6 +15,8 @@ const KIND_BY_TEMPLATE: Record<NotificationTemplateKey, NotificationKind> = {
   TASK_REMINDER: NotificationKind.TASK_REMINDER,
   SESSION_INVITE: NotificationKind.SESSION_INVITE,
   SESSION_REMINDER: NotificationKind.SESSION_REMINDER,
+  MENTOR_AVAILABILITY_PUBLISHED: NotificationKind.MENTOR_AVAILABILITY_PUBLISHED,
+  CORE_MENTOR_SELECTED: NotificationKind.CORE_MENTOR_SELECTED,
 };
 
 function validateVariables(key: NotificationTemplateKey, ...templates: string[]) {
