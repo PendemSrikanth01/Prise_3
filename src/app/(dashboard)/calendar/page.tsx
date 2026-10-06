@@ -100,6 +100,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     canManageSessions={canManageSessions}
     canManageWebinars={canManageWebinars}
     canManageAttendance={isProgram}
+    canCorrectCompleted={auth.user.role === Role.PROGRAM_LEAD}
     googleCalendar={{ configured: googleConfigured, connectedEmail: googleConnection?.googleAccountEmail ?? null, status: googleStatus ?? null }}
   />;
 }

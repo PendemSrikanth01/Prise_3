@@ -1,9 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useActionState, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Clock3, ExternalLink, Plus, Trash2, Video, X } from 'lucide-react';
 import { AttendanceMode, CalendarSyncStatus, SessionStatus, SessionType } from '@prisma/client';
-import { clearAttendanceAction, createCalendarEventAction, deleteSessionAction, recordAttendanceAction, updateSessionAction } from '@/app/actions/mentor';
+import { clearAttendanceAction, completeSessionAction, createCalendarEventAction, deleteSessionAction, recordAttendanceAction, rescheduleSessionAction, type SessionActionFeedback } from '@/app/actions/mentor';
 import { disconnectGoogleCalendarAction } from '@/app/actions/google-calendar';
 import { ConfirmButton, SubmitButton } from '@/components/ui/FormButtons';
 
@@ -17,7 +17,9 @@ type EventItem = {
 };
 type Option = { id: string; name: string; role?: string };
 type StartupParticipantGroup = { startupId: string; people: Array<{ id: string; name: string; role: string; defaultSelected: boolean }> };
-type Props = { events: EventItem[]; startups: Option[]; startupParticipants: StartupParticipantGroup[]; facilitators: Option[]; canManageSessions: boolean; canManageWebinars: boolean; canManageAttendance: boolean; googleCalendar: { configured: boolean; connectedEmail: string | null; status: string | null } };
+type Props = { events: EventItem[]; startups: Option[]; startupParticipants: StartupParticipantGroup[]; facilitators: Option[]; canManageSessions: boolean; canManageWebinars: boolean; canManageAttendance: boolean; canCorrectCompleted: boolean; googleCalendar: { configured: boolean; connectedEmail: string | null; status: string | null } };
+
+const initialSessionActionState: SessionActionFeedback = { status: 'idle', message: '' };
 
 const inputClass = 'h-10 w-full rounded-input border border-prise-border bg-white px-3 text-sm outline-none transition focus:border-prise-primary focus:ring-4 focus:ring-prise-primary/10';
 const colors: Record<SessionType, string> = {
@@ -55,7 +57,7 @@ function monthGrid(month: Date) {
   return Array.from({ length: 42 }, (_, index) => new Date(month.getFullYear(), month.getMonth(), 1 - mondayOffset + index));
 }
 
-export function CalendarView({ events, startups, startupParticipants, facilitators, canManageSessions, canManageWebinars, canManageAttendance, googleCalendar }: Props) {
+export function CalendarView({ events, startups, startupParticipants, facilitators, canManageSessions, canManageWebinars, canManageAttendance, canCorrectCompleted, googleCalendar }: Props) {
   const firstEvent = events.find((event) => new Date(event.startsAt) >= new Date());
   const initial = firstEvent ? new Date(firstEvent.startsAt) : new Date();
   const [month, setMonth] = useState(new Date(initial.getFullYear(), initial.getMonth(), 1));
@@ -95,7 +97,7 @@ export function CalendarView({ events, startups, startupParticipants, facilitato
         <div className="grid grid-cols-7 border-b bg-slate-50">{['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((day) => <div key={day} className="px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-prise-text-secondary">{day}</div>)}</div>
         <div className="grid grid-cols-7">{days.map((date) => { const key = dayKey(date); const items = byDay.get(key) ?? []; const outside = date.getMonth() !== month.getMonth(); return <button key={key} onClick={() => setSelected(key)} className={`min-h-24 border-b border-r p-2 text-left align-top transition hover:bg-prise-page ${selected === key ? 'bg-info-bg ring-2 ring-inset ring-prise-primary' : ''}`}><span className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${outside ? 'text-slate-300' : key === dayKey(new Date()) ? 'bg-prise-primary text-white' : 'text-prise-text'}`}>{date.getDate()}</span><div className="mt-1.5 space-y-1">{items.slice(0, 3).map((event) => <div key={event.id} className={`truncate rounded-md border-l-[3px] px-2 py-1 text-[11px] font-semibold ${event.status === SessionStatus.CANCELLED ? 'border-slate-300 bg-slate-100 text-slate-400 line-through' : colors[event.type]}`}>{time(event.startsAt)} · {event.title}</div>)}{items.length > 3 ? <div className="px-1 text-[11px] font-semibold text-prise-text-secondary">+{items.length - 3} more</div> : null}</div></button>; })}</div>
       </section>
-      <DayPanel date={selected} events={selectedEvents} startups={startups} canManage={canManageSessions || canManageWebinars} canManageAttendance={canManageAttendance} />
+      <DayPanel date={selected} events={selectedEvents} startups={startups} canManage={canManageSessions || canManageWebinars} canManageAttendance={canManageAttendance} canCorrectCompleted={canCorrectCompleted} />
     </div>
 
     <section className="mt-4 rounded-card border border-prise-border bg-white shadow-card md:hidden"><div className="border-b px-4 py-4"><h2 className="font-bold">Upcoming agenda</h2><p className="mt-1 text-xs text-prise-text-secondary">Compact view for smaller screens</p></div><div className="divide-y">{upcoming.map((event) => <EventSummary key={event.id} event={event} />)}{upcoming.length === 0 ? <p className="p-8 text-center text-sm text-prise-text-secondary">No upcoming events.</p> : null}</div></section>
@@ -118,14 +120,74 @@ export function CalendarView({ events, startups, startupParticipants, facilitato
   </div>;
 }
 
-function DayPanel({ date, events, startups, canManage, canManageAttendance }: { date: string; events: EventItem[]; startups: Option[]; canManage: boolean; canManageAttendance: boolean }) {
-  return <aside className="min-h-[660px] bg-slate-50/55 p-5"><div className="text-xs font-semibold uppercase tracking-[.12em] text-prise-primary">Selected day</div><h2 className="mt-1 text-xl font-bold">{new Date(`${date}T12:00:00`).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</h2><div className="mt-5 space-y-3">{events.map((event) => <details key={event.id} className="rounded-xl border border-prise-border bg-white p-4 shadow-sm"><summary className="cursor-pointer list-none"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="flex items-center gap-2 text-xs font-semibold text-prise-text-secondary"><Clock3 size={14} />{time(event.startsAt)}</div><div className="mt-1.5 font-semibold">{event.title}</div><div className="mt-1 text-xs text-prise-text-secondary">{event.startupName ?? 'All startups'} · {event.facilitatorName ?? 'Program'}</div>{event.attendance.length ? <div className="mt-1 text-[11px] font-semibold text-prise-primary">{event.attendance.length} attendance record{event.attendance.length === 1 ? '' : 's'}</div> : null}</div><span className={`mt-1 h-3 w-3 shrink-0 rounded-full border ${colors[event.type]}`} /></div></summary><div className="mt-4 border-t pt-4">{canManage ? <EventEditor event={event} /> : <EventDetails event={event} />}{canManageAttendance ? <AttendanceEditor event={event} startups={startups} /> : null}</div></details>)}{events.length === 0 ? <div className="rounded-xl border border-dashed bg-white p-8 text-center text-sm text-prise-text-secondary">Nothing scheduled for this day.</div> : null}</div></aside>;
+function DayPanel({ date, events, startups, canManage, canManageAttendance, canCorrectCompleted }: { date: string; events: EventItem[]; startups: Option[]; canManage: boolean; canManageAttendance: boolean; canCorrectCompleted: boolean }) {
+  return <aside className="min-h-[660px] bg-slate-50/55 p-5"><div className="text-xs font-semibold uppercase tracking-[.12em] text-prise-primary">Selected day</div><h2 className="mt-1 text-xl font-bold">{new Date(`${date}T12:00:00`).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</h2><div className="mt-5 space-y-3">{events.map((event) => <details key={event.id} className="rounded-xl border border-prise-border bg-white p-4 shadow-sm"><summary className="cursor-pointer list-none"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="flex items-center gap-2 text-xs font-semibold text-prise-text-secondary"><Clock3 size={14} />{time(event.startsAt)}</div><div className="mt-1.5 font-semibold">{event.title}</div><div className="mt-1 text-xs text-prise-text-secondary">{event.startupName ?? 'All startups'} · {event.facilitatorName ?? 'Program'}</div>{event.attendance.length ? <div className="mt-1 text-[11px] font-semibold text-prise-primary">{event.attendance.length} attendance record{event.attendance.length === 1 ? '' : 's'}</div> : null}</div><span className={`mt-1 h-3 w-3 shrink-0 rounded-full border ${colors[event.type]}`} /></div></summary><div className="mt-4 border-t pt-4">{canManage ? <EventEditor event={event} canCorrectCompleted={canCorrectCompleted} /> : <EventDetails event={event} />}{canManageAttendance ? <AttendanceEditor event={event} startups={startups} /> : null}</div></details>)}{events.length === 0 ? <div className="rounded-xl border border-dashed bg-white p-8 text-center text-sm text-prise-text-secondary">Nothing scheduled for this day.</div> : null}</div></aside>;
 }
 function CalendarSyncNote({ event }: { event: EventItem }) {
   if (!event.externalEventId && event.calendarSyncStatus !== CalendarSyncStatus.ERROR) return null;
   return <div className={`rounded-lg px-3 py-2 text-xs font-semibold ${event.calendarSyncStatus === CalendarSyncStatus.ERROR ? 'bg-danger-bg text-danger' : 'bg-success-bg text-success'}`}>{event.calendarSyncStatus === CalendarSyncStatus.ERROR ? `Google Calendar sync needs attention${event.calendarSyncError ? `: ${event.calendarSyncError}` : '.'}` : 'Synced with Google Calendar · changes and cancellations update automatically.'}</div>;
 }
 function EventDetails({ event }: { event: EventItem }) { return <div className="space-y-3 text-sm text-prise-text-secondary"><CalendarSyncNote event={event} /><p>{event.description || 'No agenda added.'}</p>{event.meetingUrl ? <a href={event.meetingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 font-semibold text-prise-primary"><Video size={15} />Join meeting<ExternalLink size={13} /></a> : null}{event.outcome || event.insights || event.learnings || event.decisions || event.nextActions ? <div className="space-y-2 rounded-xl bg-prise-page p-3"><div className="text-xs font-semibold uppercase tracking-[.1em] text-prise-primary">Meeting feedback</div>{event.outcome ? <p><strong className="text-prise-text">Outcome:</strong> {event.outcome}</p> : null}{event.insights ? <p><strong className="text-prise-text">Insights:</strong> {event.insights}</p> : null}{event.learnings ? <p><strong className="text-prise-text">Learning:</strong> {event.learnings}</p> : null}{event.decisions ? <p><strong className="text-prise-text">Decisions:</strong> {event.decisions}</p> : null}{event.nextActions ? <p><strong className="text-prise-text">Next:</strong> {event.nextActions}</p> : null}</div> : null}</div>; }
-function EventEditor({ event }: { event: EventItem }) { return <form action={updateSessionAction} className="space-y-3"><input type="hidden" name="sessionId" value={event.id} /><CalendarSyncNote event={event} /><input name="title" required defaultValue={event.title} className={inputClass} /><select name="status" defaultValue={event.status} className={inputClass}>{Object.values(SessionStatus).map((value) => <option key={value}>{value}</option>)}</select>{event.recurrenceGroupId ? <p className="rounded-lg bg-info-bg px-3 py-2 text-xs font-semibold text-info">Recurring series · this edit changes only this event</p> : null}<DateTimeField name="startsAt" label="Starts" value={localInput(event.startsAt)} required /><DateTimeField name="endsAt" label="Ends" value={localInput(event.endsAt)} />{event.externalEventId ? event.meetingUrl ? <a href={event.meetingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm font-semibold text-prise-primary"><Video size={15} />Open Google Meet<ExternalLink size={13} /></a> : null : <input name="meetingUrl" type="url" defaultValue={event.meetingUrl ?? ''} placeholder="Meeting link" className={inputClass} />}<textarea name="description" defaultValue={event.description ?? ''} rows={2} placeholder="Agenda / context" className="w-full rounded-input border p-3 text-sm" /><div className="rounded-xl border bg-prise-page p-3"><div className="mb-3 text-xs font-semibold uppercase tracking-[.1em] text-prise-primary">Post-meeting feedback</div><div className="space-y-2"><input name="outcome" defaultValue={event.outcome ?? ''} placeholder="Outcome summary" className={inputClass} /><textarea name="insights" defaultValue={event.insights ?? ''} rows={2} placeholder="Top insights" className="w-full rounded-input border p-3 text-sm" /><textarea name="learnings" defaultValue={event.learnings ?? ''} rows={2} placeholder="Key learning" className="w-full rounded-input border p-3 text-sm" /><textarea name="decisions" defaultValue={event.decisions ?? ''} rows={2} placeholder="Decisions made" className="w-full rounded-input border p-3 text-sm" /><textarea name="nextActions" defaultValue={event.nextActions ?? ''} rows={2} placeholder="Next actions and owner" className="w-full rounded-input border p-3 text-sm" /><label className="block text-xs font-semibold text-prise-text-secondary">Follow-up<input name="followUpAt" type="datetime-local" step={900} defaultValue={localInput(event.followUpAt)} className={`${inputClass} mt-1`} /></label></div></div><div className="flex items-center justify-between"><SubmitButton>Save event</SubmitButton>{event.status !== SessionStatus.COMPLETED ? <ConfirmButton formAction={deleteSessionAction} message="Delete this event?">Delete</ConfirmButton> : null}</div></form>; }
+function ActionNotice({ state }: { state: SessionActionFeedback }) {
+  if (state.status === 'idle') return null;
+  const style = state.status === 'success'
+    ? 'border-success/20 bg-success-bg text-success'
+    : state.status === 'warning'
+      ? 'border-warning/20 bg-warning-bg text-warning'
+      : 'border-danger/20 bg-danger-bg text-danger';
+  return <p role="status" className={`rounded-lg border px-3 py-2 text-xs font-semibold ${style}`}>{state.message}</p>;
+}
+
+function RescheduleForm({ event, completedCorrection = false }: { event: EventItem; completedCorrection?: boolean }) {
+  const [state, action] = useActionState(rescheduleSessionAction, initialSessionActionState);
+  return <form action={action} className="space-y-3">
+    <input type="hidden" name="sessionId" value={event.id} />
+    {completedCorrection ? <input type="hidden" name="status" value={SessionStatus.COMPLETED} /> : null}
+    <label className="block text-xs font-semibold text-prise-text-secondary">Title<input name="title" required defaultValue={event.title} className={`${inputClass} mt-1`} /></label>
+    {!completedCorrection ? <label className="block text-xs font-semibold text-prise-text-secondary">Status<select name="status" defaultValue={event.status} className={`${inputClass} mt-1`}><option value={SessionStatus.SCHEDULED}>Scheduled</option><option value={SessionStatus.CANCELLED}>Cancelled</option></select></label> : null}
+    {event.recurrenceGroupId ? <p className="rounded-lg bg-info-bg px-3 py-2 text-xs font-semibold text-info">Recurring series · this change affects only this meeting.</p> : null}
+    <DateTimeField name="startsAt" label="Starts" value={localInput(event.startsAt)} required />
+    <DateTimeField name="endsAt" label="Ends" value={localInput(event.endsAt)} />
+    {event.externalEventId
+      ? event.meetingUrl ? <a href={event.meetingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sm font-semibold text-prise-primary"><Video size={15} />Open Google Meet<ExternalLink size={13} /></a> : null
+      : <label className="block text-xs font-semibold text-prise-text-secondary">Meeting link<input name="meetingUrl" type="url" defaultValue={event.meetingUrl ?? ''} placeholder="https://meet.google.com/..." className={`${inputClass} mt-1`} /></label>}
+    <label className="block text-xs font-semibold text-prise-text-secondary">Agenda / context<textarea name="description" defaultValue={event.description ?? ''} rows={3} className="mt-1 w-full rounded-input border p-3 text-sm" /></label>
+    {completedCorrection ? <label className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning-bg p-3 text-xs font-semibold text-warning"><input type="checkbox" name="confirmCompletedCorrection" required className="mt-0.5 accent-prise-primary" />I confirm this correction to a completed meeting. It will be added to the audit history.</label> : null}
+    <ActionNotice state={state} />
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <SubmitButton>{completedCorrection ? 'Correct completed record' : event.status === SessionStatus.CANCELLED ? 'Restore / reschedule' : 'Save / reschedule'}</SubmitButton>
+      {!completedCorrection ? <ConfirmButton formAction={deleteSessionAction} message="Delete this event?">Delete</ConfirmButton> : null}
+    </div>
+  </form>;
+}
+
+function CompletionForm({ event }: { event: EventItem }) {
+  const [state, action] = useActionState(completeSessionAction, initialSessionActionState);
+  return <form action={action} className="space-y-2">
+    <input type="hidden" name="sessionId" value={event.id} />
+    <input name="outcome" defaultValue={event.outcome ?? ''} placeholder="Outcome summary" className={inputClass} />
+    <textarea name="insights" defaultValue={event.insights ?? ''} rows={2} placeholder="Top insights" className="w-full rounded-input border p-3 text-sm" />
+    <textarea name="learnings" defaultValue={event.learnings ?? ''} rows={2} placeholder="Key learning" className="w-full rounded-input border p-3 text-sm" />
+    <textarea name="decisions" defaultValue={event.decisions ?? ''} rows={2} placeholder="Decisions made" className="w-full rounded-input border p-3 text-sm" />
+    <textarea name="nextActions" defaultValue={event.nextActions ?? ''} rows={2} placeholder="Next actions and owner" className="w-full rounded-input border p-3 text-sm" />
+    <label className="block text-xs font-semibold text-prise-text-secondary">Follow-up<input name="followUpAt" type="datetime-local" step={900} defaultValue={localInput(event.followUpAt)} className={`${inputClass} mt-1`} /></label>
+    <ActionNotice state={state} />
+    <SubmitButton>{event.status === SessionStatus.COMPLETED ? 'Update meeting record' : 'Complete meeting'}</SubmitButton>
+  </form>;
+}
+
+function EventEditor({ event, canCorrectCompleted }: { event: EventItem; canCorrectCompleted: boolean }) {
+  return <div className="space-y-3">
+    <CalendarSyncNote event={event} />
+    {event.status === SessionStatus.COMPLETED ? <>
+      <div className="rounded-lg bg-success-bg px-3 py-2 text-xs font-semibold text-success">Meeting completed · schedule and participants are locked.</div>
+      <details open className="rounded-xl border bg-prise-page p-3"><summary className="cursor-pointer text-sm font-semibold">Meeting outcomes and follow-up</summary><div className="mt-3"><CompletionForm event={event} /></div></details>
+      {canCorrectCompleted ? <details className="rounded-xl border border-warning/30 bg-white p-3"><summary className="cursor-pointer text-sm font-semibold text-warning">Correct completed schedule</summary><p className="mt-2 text-xs text-prise-text-secondary">Program Lead correction only. The original and corrected times remain in audit history.</p><div className="mt-3"><RescheduleForm event={event} completedCorrection /></div></details> : null}
+    </> : <>
+      <details open className="rounded-xl border bg-prise-page p-3"><summary className="cursor-pointer text-sm font-semibold">Edit / reschedule</summary><p className="mt-2 text-xs text-prise-text-secondary">Move the meeting earlier or later. Google Calendar, invitations and reminders will be refreshed.</p><div className="mt-3"><RescheduleForm event={event} /></div></details>
+      {event.status !== SessionStatus.CANCELLED ? <details className="rounded-xl border bg-white p-3"><summary className="cursor-pointer text-sm font-semibold">Complete meeting</summary><p className="mt-2 text-xs text-prise-text-secondary">After the meeting starts, record its outcomes and follow-up work.</p><div className="mt-3"><CompletionForm event={event} /></div></details> : <p className="rounded-lg bg-warning-bg px-3 py-2 text-xs font-semibold text-warning">This meeting is cancelled. Restore or reschedule it before recording completion.</p>}
+    </>}
+  </div>;
+}
 function AttendanceEditor({ event, startups }: { event: EventItem; startups: Option[] }) { return <div className="mt-5 border-t pt-4"><div className="text-xs font-semibold uppercase tracking-[.1em] text-prise-text-secondary">Attendance</div><div className="mt-3 space-y-2">{event.attendance.map((record) => <div key={record.id} className="flex items-center gap-2 rounded-lg bg-prise-page px-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate font-semibold">{record.startup.name}</span><span className={`rounded-full px-2 py-1 font-semibold ${record.mode === AttendanceMode.ABSENT ? 'bg-danger-bg text-danger' : 'bg-success-bg text-success'}`}>{record.mode.toLowerCase()}</span><form action={clearAttendanceAction}><input type="hidden" name="attendanceId" value={record.id} /><ConfirmButton message="Clear this attendance record?" className="!p-1.5"><Trash2 size={13} /></ConfirmButton></form></div>)}</div><form action={recordAttendanceAction} className="mt-3 grid gap-2"><input type="hidden" name="sessionId" value={event.id} /><select name="startupId" required className={inputClass}><option value="">Choose startup</option>{startups.map((startup) => <option key={startup.id} value={startup.id}>{startup.name}</option>)}</select><div className="grid grid-cols-[1fr_auto] gap-2"><select name="mode" defaultValue={AttendanceMode.OFFLINE} className={inputClass}>{Object.values(AttendanceMode).map((mode) => <option key={mode} value={mode}>{mode.toLowerCase()}</option>)}</select><SubmitButton className="!px-3 !py-2">Record</SubmitButton></div><input name="note" maxLength={500} placeholder="Optional attendance note" className={inputClass} /></form></div>; }
 function EventSummary({ event }: { event: EventItem }) { return <div className="flex gap-3 p-4"><div className={`mt-1 h-10 w-1 shrink-0 rounded-full border ${colors[event.type]}`} /><div className="min-w-0"><div className="text-xs font-semibold text-prise-primary">{new Date(event.startsAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' })} · {time(event.startsAt)}</div><div className="mt-1 font-semibold">{event.title}</div><div className="mt-1 text-xs text-prise-text-secondary">{event.startupName ?? 'All startups'} · {event.type.replaceAll('_', ' ').toLowerCase()}</div></div></div>; }

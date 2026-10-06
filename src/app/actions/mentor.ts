@@ -1,7 +1,7 @@
 'use server';
 
 import {
-  AssignmentRole, AttendanceMode, NotificationKind, NotificationStatus, NotificationTemplateKey, Role, SessionStatus, SessionType,
+  AssignmentRole, AttendanceMode, CalendarSyncStatus, NotificationKind, NotificationStatus, NotificationTemplateKey, Role, SessionStatus, SessionType,
 } from '@prisma/client';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'node:crypto';
@@ -14,6 +14,7 @@ import { priseTeamEmails } from '@/lib/prise-team';
 import { queueTemplatedNotification } from '@/lib/notification-automation';
 import { googleConnectionForPerson, removeGoogleEventBeforeSessionDelete, syncNewSessionsToGoogle, syncUpdatedSessionToGoogle } from '@/lib/session-google-sync';
 import { validateSessionTimes } from '@/lib/calendar-time';
+import { sessionNotificationPlan, sessionRescheduleFeedback, sessionScheduleChanged, validateSessionCompletion, validateSessionEditor, validateSessionReschedule } from '@/lib/session-lifecycle';
 
 const APP_URL = () => process.env.APP_URL || 'http://127.0.0.1:3010';
 
@@ -132,52 +133,127 @@ export async function createSessionAction(formData: FormData) {
   refreshMentorWorkspace(startupId);
 }
 
-export async function updateSessionAction(formData: FormData) {
-  const sessionId = requiredText(formData, 'sessionId', 64);
+export type SessionActionFeedback = { status: 'idle' | 'success' | 'warning' | 'error'; message: string };
+
+const sessionActionMessage = (error: unknown, fallback: string) => error instanceof Error && error.message ? error.message : fallback;
+
+async function sessionEditorContext(sessionId: string) {
   const existing = await prisma.session.findUniqueOrThrow({ where: { id: sessionId } });
   const actor = existing.startupId
     ? await requireStartupAccess(existing.startupId, 'session:manage')
     : await requirePermission('webinar:manage');
-  if (actor.user.role === Role.MENTOR && existing.facilitatorId !== actor.user.id) {
-    throw new Error('Mentors can only update sessions they facilitate.');
-  }
-  const startsAt = requiredDateTime(formData, 'startsAt');
-  const endsAt = optionalDateTime(formData, 'endsAt');
-  validateSessionTimes(startsAt, endsAt);
-  const status = enumValue(SessionStatus, formData.get('status'), 'status');
-  const updated = await prisma.$transaction(async (tx) => {
-    const session = await tx.session.update({
-      where: { id: sessionId },
-      data: {
-        title: requiredText(formData, 'title', 180),
-        description: optionalText(formData, 'description', 2500),
-        status,
-        startsAt,
-        endsAt,
-        meetingUrl: existing.calendarConnectionId ? existing.meetingUrl : optionalText(formData, 'meetingUrl', 1000),
-        outcome: optionalText(formData, 'outcome', 2500),
-        nextActions: optionalText(formData, 'nextActions', 2500),
-        insights: optionalText(formData, 'insights', 2500),
-        learnings: optionalText(formData, 'learnings', 2500),
-        decisions: optionalText(formData, 'decisions', 2500),
-        followUpAt: optionalDateTime(formData, 'followUpAt'),
-      },
+  validateSessionEditor({ actorRole: actor.user.role, actorId: actor.user.id, facilitatorId: existing.facilitatorId });
+  return { existing, actor };
+}
+
+export async function rescheduleSessionAction(_previous: SessionActionFeedback, formData: FormData): Promise<SessionActionFeedback> {
+  try {
+    const sessionId = requiredText(formData, 'sessionId', 64);
+    const { existing, actor } = await sessionEditorContext(sessionId);
+    validateSessionReschedule({
+      currentStatus: existing.status,
+      actorRole: actor.user.role,
+      confirmedCompletedCorrection: formData.get('confirmCompletedCorrection') === 'on',
     });
-    await tx.activityLog.create({ data: auditData({ actor: actor.user, startupId: existing.startupId, entityType: 'Session', entityId: sessionId, action: 'updated', summary: `${session.title}: ${status.toLowerCase()}`, meta: { from: existing.status, to: status } }) });
-    return session;
-  });
-  if (updated.calendarConnectionId) await syncUpdatedSessionToGoogle(updated.id);
-  const syncedUpdated = updated.calendarConnectionId ? await prisma.session.findUniqueOrThrow({ where: { id: updated.id } }) : updated;
-  await prisma.notification.updateMany({ where: { relatedEntityType: 'Session', relatedEntityId: sessionId, kind: { in: [NotificationKind.SESSION_INVITE, NotificationKind.SESSION_REMINDER] }, status: { in: [NotificationStatus.PENDING, NotificationStatus.FAILED] } }, data: { status: NotificationStatus.CANCELLED } });
-  if (syncedUpdated.startupId && syncedUpdated.status === SessionStatus.SCHEDULED) {
-    const [startup, recipients] = await Promise.all([
-      prisma.startup.findUniqueOrThrow({ where: { id: syncedUpdated.startupId }, select: { name: true } }),
-      prisma.person.findMany({ where: { id: { in: syncedUpdated.participantIds }, isActive: true }, select: { id: true, name: true, email: true } }),
-    ]);
-    const changed = existing.title !== syncedUpdated.title || existing.startsAt.getTime() !== syncedUpdated.startsAt.getTime() || existing.meetingUrl !== syncedUpdated.meetingUrl;
-    await queueSessionAutomation(syncedUpdated, startup.name, recipients, changed, syncedUpdated.externalAttendeeEmails);
+    const startsAt = requiredDateTime(formData, 'startsAt');
+    const endsAt = optionalDateTime(formData, 'endsAt');
+    validateSessionTimes(startsAt, endsAt);
+    const requestedStatus = enumValue(SessionStatus, formData.get('status'), 'status');
+    const status = existing.status === SessionStatus.COMPLETED ? SessionStatus.COMPLETED : requestedStatus;
+    if (existing.status !== SessionStatus.COMPLETED && status !== SessionStatus.SCHEDULED && status !== SessionStatus.CANCELLED) {
+      throw new Error('Use Complete meeting to record a completed session.');
+    }
+    const title = requiredText(formData, 'title', 180);
+    const description = optionalText(formData, 'description', 2500);
+    const meetingUrl = existing.calendarConnectionId ? existing.meetingUrl : optionalText(formData, 'meetingUrl', 1000);
+    const changed = sessionScheduleChanged(existing, { title, description, status, startsAt, endsAt, meetingUrl });
+    if (!changed) return { status: 'success', message: 'No schedule changes were needed.' };
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const session = await tx.session.update({
+        where: { id: sessionId },
+        data: { title, description, status, startsAt, endsAt, meetingUrl },
+      });
+      const action = existing.status === SessionStatus.COMPLETED
+        ? 'completed_schedule_corrected'
+        : status === SessionStatus.CANCELLED
+          ? 'cancelled'
+          : 'rescheduled';
+      await tx.activityLog.create({ data: auditData({
+        actor: actor.user,
+        startupId: existing.startupId,
+        entityType: 'Session',
+        entityId: sessionId,
+        action,
+        summary: `${session.title}: ${action.replaceAll('_', ' ')}`,
+        meta: {
+          previousStatus: existing.status,
+          status,
+          previousStartsAt: existing.startsAt.toISOString(),
+          startsAt: startsAt.toISOString(),
+          previousEndsAt: existing.endsAt?.toISOString() ?? null,
+          endsAt: endsAt?.toISOString() ?? null,
+        },
+      }) });
+      return session;
+    });
+
+    if (updated.calendarConnectionId) await syncUpdatedSessionToGoogle(updated.id);
+    const syncedUpdated = updated.calendarConnectionId ? await prisma.session.findUniqueOrThrow({ where: { id: updated.id } }) : updated;
+    const notificationPlan = sessionNotificationPlan(syncedUpdated.status, changed);
+    if (notificationPlan.cancelPending) await prisma.notification.updateMany({ where: { relatedEntityType: 'Session', relatedEntityId: sessionId, kind: { in: [NotificationKind.SESSION_INVITE, NotificationKind.SESSION_REMINDER] }, status: { in: [NotificationStatus.PENDING, NotificationStatus.FAILED] } }, data: { status: NotificationStatus.CANCELLED } });
+    if (syncedUpdated.startupId && notificationPlan.queueReminder) {
+      const [startup, recipients] = await Promise.all([
+        prisma.startup.findUniqueOrThrow({ where: { id: syncedUpdated.startupId }, select: { name: true } }),
+        prisma.person.findMany({ where: { id: { in: syncedUpdated.participantIds }, isActive: true }, select: { id: true, name: true, email: true } }),
+      ]);
+      await queueSessionAutomation(syncedUpdated, startup.name, recipients, notificationPlan.queueInvite, syncedUpdated.externalAttendeeEmails);
+    }
+    refreshMentorWorkspace(syncedUpdated.startupId);
+    return sessionRescheduleFeedback({ googleSyncFailed: syncedUpdated.calendarSyncStatus === CalendarSyncStatus.ERROR, status, completedCorrection: existing.status === SessionStatus.COMPLETED });
+  } catch (error) {
+    console.error('Session reschedule failed', error);
+    return { status: 'error', message: sessionActionMessage(error, 'The meeting schedule could not be updated. Please try again.') };
   }
-  refreshMentorWorkspace(syncedUpdated.startupId);
+}
+
+export async function completeSessionAction(_previous: SessionActionFeedback, formData: FormData): Promise<SessionActionFeedback> {
+  try {
+    const sessionId = requiredText(formData, 'sessionId', 64);
+    const { existing, actor } = await sessionEditorContext(sessionId);
+    validateSessionCompletion({ currentStatus: existing.status, startsAt: existing.startsAt });
+    const wasCompleted = existing.status === SessionStatus.COMPLETED;
+    const updated = await prisma.$transaction(async (tx) => {
+      const session = await tx.session.update({
+        where: { id: sessionId },
+        data: {
+          status: SessionStatus.COMPLETED,
+          outcome: optionalText(formData, 'outcome', 2500),
+          nextActions: optionalText(formData, 'nextActions', 2500),
+          insights: optionalText(formData, 'insights', 2500),
+          learnings: optionalText(formData, 'learnings', 2500),
+          decisions: optionalText(formData, 'decisions', 2500),
+          followUpAt: optionalDateTime(formData, 'followUpAt'),
+        },
+      });
+      await tx.activityLog.create({ data: auditData({
+        actor: actor.user,
+        startupId: existing.startupId,
+        entityType: 'Session',
+        entityId: sessionId,
+        action: wasCompleted ? 'meeting_record_updated' : 'completed',
+        summary: `${session.title}: ${wasCompleted ? 'meeting record updated' : 'completed'}`,
+        meta: { from: existing.status, to: SessionStatus.COMPLETED },
+      }) });
+      return session;
+    });
+    await prisma.notification.updateMany({ where: { relatedEntityType: 'Session', relatedEntityId: sessionId, kind: { in: [NotificationKind.SESSION_INVITE, NotificationKind.SESSION_REMINDER] }, status: { in: [NotificationStatus.PENDING, NotificationStatus.FAILED] } }, data: { status: NotificationStatus.CANCELLED } });
+    refreshMentorWorkspace(updated.startupId);
+    return { status: 'success', message: wasCompleted ? 'Meeting record updated successfully.' : 'Meeting completed and its outcomes were saved.' };
+  } catch (error) {
+    console.error('Session completion failed', error);
+    return { status: 'error', message: sessionActionMessage(error, 'The meeting record could not be saved. Please try again.') };
+  }
 }
 
 export async function deleteSessionAction(formData: FormData) {
